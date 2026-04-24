@@ -1,0 +1,24 @@
+---
+name: sos-haruhi
+description: "SOS companion for managing skill packs, pointer skills, backups, and restores."
+---
+# SOS Haruhi
+
+Registry: `{{registry_path}}`
+
+Use SOS for skill pack management and pointer routing. Keep deterministic writes in the CLI.
+
+Management commands:
+- `sos scan`
+- `sos propose`
+- `sos plan`
+- `sos apply`
+- `sos status`
+- `sos backup`
+- `sos restore`
+
+Write boundary:
+SOS write commands require `--apply`. Do not edit Codex config, the SOS vault, manifests, registry, backups, or active pointer skills by hand.
+
+Pack activation:
+Pack pointers run `sos pack activate <pack> --sync=clean-auto` before selecting and reading vault skills. Activation prepares sync and routing; management commands handle planning, apply, backup, and restore.
