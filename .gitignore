@@ -16,3 +16,13 @@ venv/
 .sos/
 sos-runtime/
 plan.toml
+
+# Local agent planning and archival workspace.
+# These files may contain local paths, private notes, or temporary work records.
+/task_plan.md
+/progress.md
+/findings.md
+/coding-agent-guide.md
+/documentation-governance.md
+/docs/
+/archive/
