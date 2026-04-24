@@ -127,6 +127,9 @@ Apply the plan:
 sos apply --plan "$RUNTIME_ROOT/plan.toml" --apply
 ```
 
+After a successful apply, SOS writes generated active skills into the scanned
+skill root. The generated entry points are described in the next section.
+
 Check runtime state:
 
 ```bash
@@ -169,6 +172,23 @@ The runtime root is the managed SOS workspace. A typical runtime looks like:
 - `state/` stores registry state.
 - `backups/` stores config and vault snapshots created before writes.
 
+## Generated Skills
+
+SOS does not commit generated active skill folders to this repository. They are
+created in your selected active skill root when an apply plan is executed with
+`--apply`.
+
+The generated set includes:
+
+- `sos-haruhi`: the companion entry for pack management, status, backup, and
+  restore workflows.
+- `sos-<pack>`: one pointer skill per active pack, generated from each pack
+  manifest.
+
+Generated pointer skills stay intentionally short. They point the agent to the
+pack manifest and vault copy instead of embedding the full original `SKILL.md`
+content.
+
 ## Pack Proposal Model
 
 SOS treats pack proposals as reviewable candidates, not final authority. A pack
@@ -177,6 +197,17 @@ reviewed before any write command runs.
 
 The current proposal engine is intentionally conservative. Future versions may
 add more proposal rules, custom manifests, or interactive selection flows.
+
+## Compatibility
+
+SOS is currently Codex-first. Its tested write path can update Codex skill
+configuration after creating backups and only when `--apply` is used.
+
+Claude Code compatibility is structural in the current release: generated skills
+are ordinary `SKILL.md` folders, and pack metadata is stored in plain TOML
+manifests. SOS does not yet provide a Claude Code-specific installer, settings
+writer, or integration test suite. Paths that look Claude-specific are guarded
+against broad source deletion.
 
 ## Source Deletion
 
