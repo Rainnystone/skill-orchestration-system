@@ -133,9 +133,3 @@ git diff --check
 
 - If a sensitive file was accidentally tracked, stop and remove it from the index before pushing.
 - Human review is required before broad merges, public behavior changes, or irreversible write-path changes.
-
-## NHK Coverage Audit
-
-- Active instruction file: `AGENTS.md`. If `CLAUDE.md` appears later, stop and ask which file is active before merging, deleting, migrating, or rewriting either file.
-- Mandatory companion docs: `coding-agent-guide.md`, `documentation-governance.md`, `archive/`, and `archive/README.md` are expected as local ignored NHK surfaces.
-- Coverage categories preserved or project-adapted here: stable execution rules, task tracking discipline, workflow completion and archive check, documentation governance and context loading, subagent delegation discipline, implementation packet discipline, blocker protocol, testing and verification expectations, and git and delivery expectations.

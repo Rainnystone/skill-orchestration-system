@@ -14,14 +14,35 @@ configuration, and creates backups before writes.
 ## What It Does
 
 - Scans local skill folders that contain `SKILL.md`.
-- Proposes built-in packs for Apify, Obsidian, and browser game workflows.
+- Proposes functional pack candidates from the scanned skills.
 - Writes a plan file before making changes.
 - Applies the plan only when `--apply` is explicitly passed.
 - Preserves source skills by default.
-- Generates active pointer skills such as `sos-apify` and `sos-obsidian`.
+- Generates active pointer skills such as `sos-<pack>`.
 - Tracks pack manifests, runtime registry state, backups, restore targets, and
   sync fingerprints.
 - Supports dry-run status, backup cleanup, restore, and pack sync flows.
+
+## Repository Structure
+
+```text
+.
+|-- .github/workflows/     # CI workflow
+|-- references/            # Public behavior and safety references
+|-- src/sos/               # CLI and library implementation
+|   |-- cli.py             # Command-line entry point
+|   |-- planner.py         # Auditable write-plan generation
+|   |-- apply.py           # Plan execution and rollback-aware writes
+|   |-- sync.py            # Pack activation and clean sync behavior
+|   |-- backups.py         # Backup, restore, and retention helpers
+|   `-- templates/         # Packaged pointer skill templates
+|-- templates/             # Source copies of generated-skill templates
+|-- tests/                 # Unit tests and CLI smoke tests
+|-- README.md              # English documentation
+|-- README_CN.md           # Chinese documentation
+|-- pyproject.toml         # Python package metadata
+`-- LICENSE
+```
 
 ## Safety Model
 
@@ -75,11 +96,14 @@ Scan active skills:
 sos scan --root "$SKILLS_ROOT" --codex-config "$CODEX_CONFIG"
 ```
 
-Preview built-in pack proposals:
+Preview pack candidates:
 
 ```bash
 sos propose --root "$SKILLS_ROOT"
 ```
+
+The proposal step is only a starting point. Review the generated plan and keep,
+adjust, or reject pack boundaries before applying changes to a real skill root.
 
 Create an auditable plan:
 
@@ -114,7 +138,7 @@ sos status --runtime-root "$RUNTIME_ROOT"
 | Command | Purpose | Writes by default |
 | --- | --- | --- |
 | `sos scan --root <path> [--codex-config <path>]` | List enabled skills under a root. | No |
-| `sos propose --root <path>` | Propose built-in packs from scanned skills. | No |
+| `sos propose --root <path>` | Propose pack candidates from scanned skills. | No |
 | `sos plan --root <path> --runtime-root <path> --codex-config <path> --out <path>` | Write a reviewable plan file. | Only the plan file |
 | `sos apply --plan <path>` | Summarize a plan. | No |
 | `sos apply --plan <path> --apply` | Copy skills, write manifests and pointers, disable originals, and create backups. | Yes |
@@ -145,15 +169,14 @@ The runtime root is the managed SOS workspace. A typical runtime looks like:
 - `state/` stores registry state.
 - `backups/` stores config and vault snapshots created before writes.
 
-## Built-In Pack Proposals
+## Pack Proposal Model
 
-SOS currently recognizes these built-in families:
+SOS treats pack proposals as reviewable candidates, not final authority. A pack
+should represent a real workflow boundary, and the generated plan should be
+reviewed before any write command runs.
 
-- `apify`: skills whose names start with `apify-`.
-- `obsidian`: skills whose names start with `obsidian-`, plus `json-canvas`.
-- `game-design`: Game Studio and browser game workflow skills.
-
-Large families are split into stable semantic subpacks when needed.
+The current proposal engine is intentionally conservative. Future versions may
+add more proposal rules, custom manifests, or interactive selection flows.
 
 ## Source Deletion
 
