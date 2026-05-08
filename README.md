@@ -62,9 +62,29 @@ Review the generated plan before running any command that writes files.
 
 SOS requires Python 3.11 or newer.
 
+**Unix (bash/zsh):**
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install -e ".[dev]"
+python -m sos --version
+```
+
+**Windows CMD:**
+
+```cmd
+python -m venv .venv
+.venv\Scripts\activate
+python -m pip install -e ".[dev]"
+python -m sos --version
+```
+
+**Windows PowerShell:**
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
 python -m sos --version
 ```
@@ -84,10 +104,28 @@ sos --version
 The example below uses placeholders. Replace them with your own skill root,
 runtime root, and Codex config path.
 
+**Unix (bash/zsh):**
+
 ```bash
 export SKILLS_ROOT="$HOME/.codex/skills"
 export RUNTIME_ROOT="$HOME/.sos"
 export CODEX_CONFIG="$HOME/.codex/config.toml"
+```
+
+**Windows CMD:**
+
+```cmd
+set SKILLS_ROOT=%USERPROFILE%\.codex\skills
+set RUNTIME_ROOT=%USERPROFILE%\.sos
+set CODEX_CONFIG=%USERPROFILE%\.codex\config.toml
+```
+
+**Windows PowerShell:**
+
+```powershell
+$env:SKILLS_ROOT = "$env:USERPROFILE\.codex\skills"
+$env:RUNTIME_ROOT = "$env:USERPROFILE\.sos"
+$env:CODEX_CONFIG = "$env:USERPROFILE\.codex\config.toml"
 ```
 
 Scan active skills:

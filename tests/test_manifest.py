@@ -65,8 +65,17 @@ def test_model_sequence_fields_are_isolated_from_external_list_mutation(tmp_path
     assert result.messages == ("ready",)
 
 
-def test_runtime_paths_default_to_global_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def _patch_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Patch all home-resolution mechanisms for both POSIX and Windows."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.delenv("HOMEDRIVE", raising=False)
+    monkeypatch.delenv("HOMEPATH", raising=False)
+
+
+def test_runtime_paths_default_to_global_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _patch_home(monkeypatch, tmp_path)
     paths = RuntimePaths.default()
 
     assert paths.root == tmp_path / ".sos"
@@ -77,7 +86,7 @@ def test_runtime_paths_default_to_global_home(tmp_path: Path, monkeypatch: pytes
 
 
 def test_runtime_paths_from_root_and_expand_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _patch_home(monkeypatch, tmp_path)
     paths = RuntimePaths.from_root("~/project/.sos")
 
     assert paths.root == tmp_path / "project" / ".sos"
