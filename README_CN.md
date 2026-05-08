@@ -60,9 +60,29 @@ SOS 默认非常保守：
 
 SOS 需要 Python 3.11 或更新版本。
 
+**Unix (bash/zsh):**
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install -e ".[dev]"
+python -m sos --version
+```
+
+**Windows CMD:**
+
+```cmd
+python -m venv .venv
+.venv\Scripts\activate
+python -m pip install -e ".[dev]"
+python -m sos --version
+```
+
+**Windows PowerShell:**
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
 python -m sos --version
 ```
@@ -80,10 +100,28 @@ sos --version
 
 下面使用的是占位路径。请替换成你自己的技能目录、SOS 运行时目录和 Codex 配置路径。
 
+**Unix (bash/zsh):**
+
 ```bash
 export SKILLS_ROOT="$HOME/.codex/skills"
 export RUNTIME_ROOT="$HOME/.sos"
 export CODEX_CONFIG="$HOME/.codex/config.toml"
+```
+
+**Windows CMD:**
+
+```cmd
+set SKILLS_ROOT=%USERPROFILE%\.codex\skills
+set RUNTIME_ROOT=%USERPROFILE%\.sos
+set CODEX_CONFIG=%USERPROFILE%\.codex\config.toml
+```
+
+**Windows PowerShell:**
+
+```powershell
+$env:SKILLS_ROOT = "$env:USERPROFILE\.codex\skills"
+$env:RUNTIME_ROOT = "$env:USERPROFILE\.sos"
+$env:CODEX_CONFIG = "$env:USERPROFILE\.codex\config.toml"
 ```
 
 扫描活动技能：
