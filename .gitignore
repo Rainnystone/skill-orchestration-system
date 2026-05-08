@@ -1,4 +1,7 @@
 .DS_Store
+Thumbs.db
+Desktop.ini
+desktop.ini
 __pycache__/
 *.py[cod]
 *.egg-info/
