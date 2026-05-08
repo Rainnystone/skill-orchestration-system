@@ -19,10 +19,10 @@ def test_create_backup_records_config_and_vault_snapshot_with_id(tmp_path: Path)
     assert record.metadata["reason"] == "before apply"
     assert record.config_path is not None
     assert record.config_path.read_text(encoding="utf-8") == "enabled = true\n"
-    assert record.metadata["config_snapshot_path"] == str(record.config_path)
+    assert record.metadata["config_snapshot_path"] == record.config_path.as_posix()
     assert record.vault_path is not None
     assert (record.vault_path / "SKILL.md").read_text(encoding="utf-8") == "# Original\n"
-    assert record.metadata["vault_snapshot_path"] == str(record.vault_path)
+    assert record.metadata["vault_snapshot_path"] == record.vault_path.as_posix()
 
 
 def test_restore_backup_restores_config_and_vault_state(tmp_path: Path):
@@ -181,6 +181,35 @@ def test_prune_backups_apply_false_does_not_delete(tmp_path: Path):
 
     assert [record.backup_id for record in remaining] == [backup_ids[-1]]
     assert sorted(path.name for path in runtime_paths.backups.iterdir()) == sorted(backup_ids)
+
+
+def test_backup_metadata_paths_are_posix_on_all_platforms(tmp_path: Path):
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    config_path, vault_root = _write_config_and_vault(tmp_path, "enabled = true\n", "# Test\n")
+
+    record = create_backup(runtime_paths, config_path, vault_root, "posix test")
+
+    if record.config_path is not None:
+        assert "\\" not in str(record.metadata["config_snapshot_path"])
+    if record.vault_path is not None:
+        assert "\\" not in str(record.metadata["vault_snapshot_path"])
+
+
+def test_backup_with_posix_metadata_round_trips_through_restore(tmp_path: Path):
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    config_path, vault_root = _write_config_and_vault(tmp_path, "enabled = true\n", "# Original\n")
+    create_backup(runtime_paths, config_path, vault_root, "before mutation")
+    config_path.write_text("enabled = false\n", encoding="utf-8")
+    (vault_root / "SKILL.md").write_text("# Changed\n", encoding="utf-8")
+
+    records = list_backups(runtime_paths)
+    assert len(records) == 1
+
+    restored = restore_backup(
+        runtime_paths, records[0].backup_id, config_path, vault_root, apply=True
+    )
+    assert config_path.read_text(encoding="utf-8") == "enabled = true\n"
+    assert (vault_root / "SKILL.md").read_text(encoding="utf-8") == "# Original\n"
 
 
 def _write_config_and_vault(

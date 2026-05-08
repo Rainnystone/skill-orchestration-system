@@ -157,9 +157,9 @@ def _backup_metadata(
         "reason": reason,
     }
     if config_snapshot_path is not None:
-        metadata["config_snapshot_path"] = str(config_snapshot_path)
+        metadata["config_snapshot_path"] = config_snapshot_path.as_posix()
     if vault_snapshot_path is not None:
-        metadata["vault_snapshot_path"] = str(vault_snapshot_path)
+        metadata["vault_snapshot_path"] = vault_snapshot_path.as_posix()
     return metadata
 
 
