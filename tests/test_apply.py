@@ -495,3 +495,15 @@ def test_write_config_produces_valid_toml_on_all_platforms(tmp_path: Path):
         data = tomllib.load(f)
     assert data["skills"]["config"][0]["enabled"] is True
     assert data["skills"]["config"][0]["path"] == str(source / "SKILL.md")
+
+
+def test_safe_component_rejects_backslash_traversal():
+    from sos.apply import _safe_component
+    with pytest.raises(ValueError, match="unsafe"):
+        _safe_component("..\\outside", "pack_id")
+
+
+def test_safe_component_rejects_backslash_in_component():
+    from sos.apply import _safe_component
+    with pytest.raises(ValueError, match="unsafe"):
+        _safe_component("foo\\bar", "pack_id")

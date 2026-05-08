@@ -223,3 +223,9 @@ def _write_config_and_vault(
     vault_root.mkdir()
     (vault_root / "SKILL.md").write_text(skill_text, encoding="utf-8")
     return config_path, vault_root
+
+
+def test_validate_backup_id_component_rejects_backslash():
+    from sos.backups import _validate_backup_id_component
+    with pytest.raises(ValueError, match="unsafe"):
+        _validate_backup_id_component("..\\outside")

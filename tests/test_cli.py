@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -665,3 +666,29 @@ def _write_backup_metadata(runtime_paths: RuntimePaths, backup_id: str) -> None:
             "reason": "seeded",
         },
     )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="backslash is path separator only on Windows")
+def test_restore_rejects_backslash_traversal_on_windows(tmp_path: Path):
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    codex_config, vault_root = _write_config_and_vault(tmp_path)
+    runtime_paths.backups.mkdir(parents=True)
+    outside_dir = runtime_paths.root / "outside"
+    outside_config = tmp_path / "outside-config.toml"
+    outside_vault = tmp_path / "outside-vault"
+    write_toml(
+        outside_dir / "metadata.toml",
+        {
+            "backup_id": "outside",
+            "created_at": "2026-04-24T12:00:00+00:00",
+            "reason": "outside",
+            "codex_config_path": str(outside_config),
+            "vault_root": str(outside_vault),
+        },
+    )
+
+    with pytest.raises(ValueError, match="backup_id"):
+        main(["restore", "..\\outside", "--runtime-root", str(runtime_paths.root)])
+
+    assert not outside_config.exists()
+    assert not outside_vault.exists()
