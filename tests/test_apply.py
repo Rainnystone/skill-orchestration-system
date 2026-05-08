@@ -474,8 +474,24 @@ def _write_skill(root: Path, name: str) -> Path:
 
 
 def _write_config(config_path: Path, *skill_md_paths: Path) -> None:
-    entries = "\n".join(
-        f'[[skills.config]]\npath = "{skill_md_path}"\nenabled = true\n'
-        for skill_md_path in skill_md_paths
-    )
-    config_path.write_text(entries, encoding="utf-8")
+    data = {
+        "skills": {
+            "config": [
+                {"path": str(p), "enabled": True}
+                for p in skill_md_paths
+            ]
+        }
+    }
+    write_toml(config_path, data)
+
+
+def test_write_config_produces_valid_toml_on_all_platforms(tmp_path: Path):
+    source = _write_skill(tmp_path, "apify-actor-development")
+    config_path = tmp_path / "config.toml"
+    _write_config(config_path, source / "SKILL.md")
+
+    import tomllib
+    with config_path.open("rb") as f:
+        data = tomllib.load(f)
+    assert data["skills"]["config"][0]["enabled"] is True
+    assert data["skills"]["config"][0]["path"] == str(source / "SKILL.md")
