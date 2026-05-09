@@ -26,6 +26,7 @@ REFERENCE_DOCS = (
     REPO_ROOT / "references" / "sync-policy.md",
     REPO_ROOT / "references" / "codex-config-safety.md",
     REPO_ROOT / "references" / "backup-restore.md",
+    REPO_ROOT / "references" / "pack-composition.md",
 )
 
 
@@ -75,6 +76,17 @@ def test_fixture_roots_propose_builtin_apify_obsidian_and_game_packs() -> None:
     assert by_pack["apify"] == ("apify-actor-development",)
     assert by_pack["obsidian"] == ("obsidian-cli",)
     assert by_pack["game-design"] == ("game-studio",)
+
+
+def test_pack_composition_reference_uses_skill_head_first() -> None:
+    text = (REPO_ROOT / "references" / "pack-composition.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Skill Head First" in text
+    assert "`name`" in text
+    assert "`description`" in text
+    assert "not the full Markdown body" in text
 
 
 def test_fixture_apply_path_disables_originals_and_leaves_pointers_scannable(
