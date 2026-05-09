@@ -5,9 +5,9 @@
 你的 agent skills 应该像一套顺手的工具箱，而不是第二个杂物抽屉。
 
 Skill Orchestration System，简称 SOS，是一个面向 Codex 用户的本地 skill
-整理系统。它可以把越来越多的本地 agent skills 整理成更小、更清楚、可审查、可激活、可回滚的技能包。它会先写计划，再写文件；先做 dry run，再真正 apply；先备份，再修改。
+整理系统。它把越来越多的本地 agent skills 整理成更小、更清楚、可审查、可激活、可回滚的技能包。它会先写计划，再写文件；先做 dry run，再真正 apply；先备份，再修改。
 
-当前 SOS 是 Codex-first。Claude Code 的兼容性只保留结构口子，还没有接入专用安装器、settings 写入器或集成测试。
+当前 SOS 是 Codex-first。Claude Code 兼容性只保留结构入口，还没有接入专用安装器、settings 写入器或集成测试。
 
 ## 为什么需要 SOS
 
@@ -32,7 +32,7 @@ SOS 做的事情很朴素：
 SOS 有两层：
 
 - `.agents/skills/sos/` 里的 **Codex skill wrapper**，负责引导 agent 进行 no-global-install 的工作流；
-- `src/sos/` 里的 **Python CLI backend**，负责确定性的扫描、计划、写入、同步、备份和恢复。
+- `src/sos/` 里的 **Python CLI backend**，负责确定性的扫描、规划、写入、同步、备份和恢复。
 
 skill 负责告诉 agent 下一步该看什么、做什么。CLI 负责真正的文件操作。这个边界很重要：prompt 可以引导，但写文件这件事应该交给确定性代码。
 
@@ -59,13 +59,13 @@ python .agents/skills/sos/scripts/sos_doctor.py --no-path-lookup
 
 如果当前目录就是 SOS 源码 checkout，SOS 可以用 repo-local 模式运行，不需要先安装一个全局 `sos` 命令。
 
-**macOS / Linux:**
+**macOS / Linux：**
 
 ```bash
 PYTHONPATH=src python -m sos --version
 ```
 
-**Windows PowerShell:**
+**Windows PowerShell：**
 
 ```powershell
 $env:PYTHONPATH = "src"
@@ -82,7 +82,7 @@ sos 0.1.0
 
 如果你想以普通 Python 项目的方式开发 SOS，需要 Python 3.11 或更新版本。
 
-**macOS / Linux:**
+**macOS / Linux：**
 
 ```bash
 python3 -m venv .venv
@@ -91,7 +91,7 @@ python -m pip install -e ".[dev]"
 python -m sos --version
 ```
 
-**Windows PowerShell:**
+**Windows PowerShell：**
 
 ```powershell
 python -m venv .venv
@@ -121,9 +121,11 @@ Use the sos skill to inspect my local Codex skills and explain what it finds.
 Use the sos skill to propose skill packs, but do not write anything yet.
 Use the sos skill to create a dry-run plan for organizing my skills.
 Use the sos skill to apply the reviewed plan.
+Use the sos skill to show what is inside my current packs.
+Use the sos skill to check what changed after I installed new skills.
 ```
 
-skill 被触发后，Codex 会读取 `.agents/skills/sos/SKILL.md`，运行或检查 `sos_doctor.py`，判断当前应该用 repo-local 模式还是 installed-CLI 模式，缺路径时先问你，然后再调用默认 dry-run-first 的 SOS 命令。
+skill 被触发后，Codex 会读取 `.agents/skills/sos/SKILL.md`，运行或检查 `sos_doctor.py`，判断当前应该用 repo-local 模式还是 installed-CLI 模式；缺路径时会先问你，然后再调用默认 dry-run-first 的 SOS 命令。
 
 ### CLI 路线
 
@@ -135,13 +137,13 @@ sos scan --root SKILLS_ROOT --codex-config CODEX_CONFIG
 
 如果你不想全局安装，就从源码 checkout 里用同一套后端：
 
-**macOS / Linux:**
+**macOS / Linux：**
 
 ```bash
 PYTHONPATH=src python -m sos scan --root SKILLS_ROOT --codex-config CODEX_CONFIG
 ```
 
-**Windows PowerShell:**
+**Windows PowerShell：**
 
 ```powershell
 $env:PYTHONPATH = "src"
@@ -165,6 +167,28 @@ Use sos-writing for this documentation task.
 ```
 
 pack pointer 会先运行 `sos pack activate PACK_ID --runtime-root RUNTIME_ROOT --sync=clean-auto`，再读取受管理 vault 里的 skill 副本。这就是 SOS 保持 active 层很轻，同时把完整 skill 内容留在 vault 里的方式。
+
+### 看清一个 pack 里有什么
+
+pack 存在以后，你不需要猜 agent 会看到什么。可以问 `sos` skill，也可以直接运行只读命令：
+
+```bash
+sos pack list --runtime-root RUNTIME_ROOT
+sos pack show PACK_ID --runtime-root RUNTIME_ROOT
+sos pack show PACK_ID --runtime-root RUNTIME_ROOT --skill SKILL_NAME
+```
+
+`pack list` 回答“我现在有哪些 packs？”`pack show` 回答“这个 pack 里有哪些 skills？”如果你指定了 skill name，SOS 会按 manifest 里的 `skills.name` 做精确过滤，这样 agent 可以读取一个明确的 vault skill，而不是一上来浏览整个 pack。
+
+### 安装或编辑新 skills 之后
+
+当你的本地 skill 库发生变化时，先用 `changes` 看状态，再决定要不要重新建计划：
+
+```bash
+sos changes --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --codex-config CODEX_CONFIG
+```
+
+这也是只读命令。它会报告新增的 unmanaged skills、缺失或变更的 managed sources、vault drift、缺失或过期的 generated pointers，以及意外重新启用的 managed source skills。它不会自动修复，只告诉你哪些地方值得重新 scan、propose 或生成可审查计划。
 
 ## 一个安全的起步流程
 
@@ -204,12 +228,11 @@ sos apply --plan PLAN_PATH --apply
 
 SOS 默认很保守。
 
-- `scan` 和 `propose` 不写入；
-- `plan` 只写指定的计划文件；
-- 不带 `--apply` 的 `apply` 只是 dry run；
-- `apply --apply` 会先创建备份，再执行受管理的写入；
-- 源 skill 删除默认关闭，需要同时提供 `--delete-source`、`--apply` 和
-  `--confirm-delete-source <pack-id>`；
+- `scan` 和 `propose` 不写入。
+- `plan` 只写指定的计划文件。
+- 不带 `--apply` 的 `apply` 只是 dry run。
+- `apply --apply` 会先创建备份，再执行受管理的写入。
+- 源 skill 删除默认关闭，需要同时提供 `--delete-source`、`--apply` 和 `--confirm-delete-source <pack-id>`。
 - restore 和 backup cleanup 默认也是 dry run，只有加上 `--apply` 才会写入。
 
 运行任何会写文件的命令前，都应该先看计划。如果不确定，就再跑一次 dry run。
@@ -221,7 +244,7 @@ SOS 默认很保守。
 - `sos-haruhi`：用于 pack 管理、状态查看、备份和恢复的 companion skill；
 - `sos-<pack>`：每个技能包对应一个 pointer skill。
 
-pointer skill 不会塞入原始 `SKILL.md` 全文。它会指向 pack manifest 和受管理的 vault 副本。这样 active 层保持轻，详细内容留在该在的地方。
+pointer skill 不会塞入原始 `SKILL.md` 全文。它会指向 pack manifest 和受管理的 vault 副本。如果用户明确说了 packed skill name，pointer 会按 manifest `skills.name` 精确匹配；如果用户没有指定，就根据 manifest `skills.name` 和 `skills.description` 选择，歧义时先问用户。这样 active 层保持轻，详细内容留在该在的地方。
 
 ## 它是怎么工作的
 
@@ -233,6 +256,8 @@ pointer skill 不会塞入原始 `SKILL.md` 全文。它会指向 pack manifest 
 |   |-- cli.py              # 命令行入口
 |   |-- scanner.py          # SKILL.md 发现
 |   |-- propose.py          # 技能包建议规则
+|   |-- pack_inspect.py     # 只读 pack list/show helper
+|   |-- changes.py          # 只读 runtime 和 skill drift 报告
 |   |-- planner.py          # 可审查写入计划
 |   |-- apply.py            # 计划执行和可回滚写入
 |   |-- sync.py             # 技能包激活和 clean sync
@@ -257,9 +282,11 @@ pointer skill 不会塞入原始 `SKILL.md` 全文。它会指向 pack manifest 
 ```
 
 - `vault/` 保存受管理的 skill 副本；
-- `packs/` 保存 TOML pack manifests；
+- `packs/` 保存 TOML pack manifests，包括每个 managed skill 的 `name`、`description`、source path、vault path 和 sync fingerprints；
 - `state/` 保存 registry 状态；
 - `backups/` 保存写入前创建的 config 和 vault 快照。
+
+pack proposal 是确定性的。SOS 会先看 Agent Skill head metadata，尤其是 `name` 和 `description`；先识别清楚的 source/tool family，比如 Apify 或 Obsidian，再识别 Docs、Browser、Deploy、Data 这类功能组。歧义 skills 会留给人工 review，而不是交给隐藏分类器直接打包。
 
 ## CLI 参考
 
@@ -271,8 +298,11 @@ pointer skill 不会塞入原始 `SKILL.md` 全文。它会指向 pack manifest 
 | `sos apply --plan <path>` | 汇总计划内容，做 dry run。 | 否 |
 | `sos apply --plan <path> --apply` | 复制 skills、写 manifest 和 pointer、禁用原入口并创建备份。 | 是 |
 | `sos pack activate <pack> --runtime-root <path>` | 激活技能包，并在符合条件时执行 clean sync。 | 可能 |
+| `sos pack list --runtime-root <path>` | 列出已写入的 runtime packs。 | 否 |
+| `sos pack show <pack> --runtime-root <path>` | 显示一个 pack 的 manifest 和其管理的 skills。 | 否 |
 | `sos pack sync <pack> --runtime-root <path>` | 展示技能包同步计划。 | 否 |
 | `sos pack sync <pack> --runtime-root <path> --apply` | 执行有效的技能包同步计划。 | 是 |
+| `sos changes --root <path> --runtime-root <path> --codex-config <path>` | 报告新增、缺失、变更、过期或意外启用的 skills 和 pointers。 | 否 |
 | `sos status --runtime-root <path>` | 查看 runtime registry 和备份状态。 | 否 |
 | `sos backup list --runtime-root <path>` | 列出备份。 | 否 |
 | `sos backup clean --runtime-root <path> --keep <count>` | 预览备份清理。 | 否 |

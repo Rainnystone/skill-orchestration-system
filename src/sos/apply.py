@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import shutil
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
 from sos.backups import create_backup
 from sos.codex_config import disable_skill_paths_with_backup
+from sos.fingerprint import fingerprint_dir
 from sos.manifest import (
     save_pack_manifest,
     save_registry,
@@ -119,16 +121,17 @@ def apply_write_plan(
                 _required_path(operation.target),
             )
 
+        baselined_manifests = _with_initial_fingerprints(validated.manifests)
         for operation, manifest in zip(
             _operations_of_kind(plan, OperationKind.WRITE_MANIFEST),
-            validated.manifests,
+            baselined_manifests,
             strict=True,
         ):
             save_pack_manifest(_required_path(operation.target), manifest)
 
         registry = update_registry_after_apply(
             Registry(),
-            validated.manifests,
+            baselined_manifests,
             validated.pointer_targets,
             backup.backup_id,
         )
@@ -136,7 +139,7 @@ def apply_write_plan(
         registry_operation = _single_operation(plan, OperationKind.WRITE_REGISTRY)
         save_registry(_required_path(registry_operation.target), registry)
 
-        render_v1_active_skills(active_root, registry, validated.manifests)
+        render_v1_active_skills(active_root, registry, baselined_manifests)
 
         config_backup_path = backup.config_path or (
             runtime_paths.backups / backup.backup_id / "config.toml"
@@ -170,6 +173,27 @@ def apply_write_plan(
         operations=plan.operations,
         backup_id=backup.backup_id,
         deleted_source_paths=source_deletion_paths,
+    )
+
+
+def _with_initial_fingerprints(
+    manifests: tuple[PackManifest, ...],
+) -> tuple[PackManifest, ...]:
+    synced_at = datetime.now(timezone.utc).isoformat()
+    return tuple(
+        replace(
+            manifest,
+            skills=tuple(
+                replace(
+                    skill,
+                    last_source_fingerprint=fingerprint_dir(skill.source_path),
+                    last_vault_fingerprint=fingerprint_dir(skill.vault_path),
+                    last_synced_at=synced_at,
+                )
+                for skill in manifest.skills
+            ),
+        )
+        for manifest in manifests
     )
 
 
@@ -613,6 +637,7 @@ def _skill_entry_from_metadata(data: Mapping[str, Any]) -> SkillEntry:
         last_source_fingerprint=str(data.get("last_source_fingerprint", "")),
         last_vault_fingerprint=str(data.get("last_vault_fingerprint", "")),
         last_synced_at=str(data.get("last_synced_at", "")),
+        description=str(data.get("description", "")),
     )
 
 

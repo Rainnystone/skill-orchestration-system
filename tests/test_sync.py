@@ -116,6 +116,31 @@ def test_explicit_pack_sync_apply_updates_vault_and_manifest_only(tmp_path: Path
     assert tuple(operation.target for operation in result.operations) == (vault, manifest_path)
 
 
+def test_pack_sync_apply_refreshes_manifest_skill_description(tmp_path: Path):
+    source = _write_skill(
+        tmp_path / "source",
+        "work-skill",
+        "---\nname: work-skill\ndescription: Old description.\n---\n# Original\n",
+    )
+    vault = _write_skill(
+        tmp_path / "vault",
+        "work-skill",
+        "---\nname: work-skill\ndescription: Old description.\n---\n# Original\n",
+    )
+    manifest_path = _write_manifest(tmp_path, source, vault)
+    (source / "SKILL.md").write_text(
+        "---\nname: work-skill\ndescription: New description.\n---\n# Updated\n",
+        encoding="utf-8",
+    )
+
+    result = apply_pack_sync(plan_pack_sync(manifest_path), apply=True)
+
+    updated_skill = load_pack_manifest(manifest_path).skills[0]
+    assert result.status == "synced"
+    assert updated_skill.description == "New description."
+    assert "New description." in (vault / "SKILL.md").read_text(encoding="utf-8")
+
+
 def test_malformed_vault_path_outside_vault_root_is_rejected_before_writes(tmp_path: Path):
     source = _write_skill(tmp_path / "source", "work-skill", "# Original\n")
     outside = _write_skill(tmp_path / "outside", "work-skill", "# Outside original\n")

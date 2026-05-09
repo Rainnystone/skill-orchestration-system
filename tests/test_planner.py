@@ -152,6 +152,26 @@ def test_plan_lists_source_deletion_candidates_without_enabling_deletion(tmp_pat
     assert dict(delete_operations[0].metadata)["candidate"] is True
 
 
+def test_plan_manifest_metadata_preserves_skill_description(tmp_path: Path):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "apify-actor-development")
+    runtime_paths = _runtime_paths(tmp_path)
+
+    plan = build_pack_apply_plan(
+        runtime_paths,
+        active_root,
+        tmp_path / "config.toml",
+        (_apify_proposal(),),
+    )
+
+    manifest_operation = next(
+        operation for operation in plan.operations if operation.kind == OperationKind.WRITE_MANIFEST
+    )
+    manifest_metadata = dict(manifest_operation.metadata)["manifest"]
+
+    assert manifest_metadata["skills"][0]["description"] == "apify-actor-development test skill."
+
+
 def test_plan_rejects_unvalidated_source_paths(tmp_path: Path):
     active_root = tmp_path / "active"
     (active_root / "apify-actor-development").mkdir(parents=True)

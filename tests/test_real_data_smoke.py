@@ -26,6 +26,7 @@ REFERENCE_DOCS = (
     REPO_ROOT / "references" / "sync-policy.md",
     REPO_ROOT / "references" / "codex-config-safety.md",
     REPO_ROOT / "references" / "backup-restore.md",
+    REPO_ROOT / "references" / "pack-composition.md",
 )
 
 
@@ -40,8 +41,11 @@ def test_reference_docs_exist_and_use_current_cli_terms() -> None:
         "sos plan",
         "sos apply",
         "sos status",
+        "sos pack list",
         "sos pack activate",
+        "sos pack show",
         "sos pack sync",
+        "sos changes",
         "sos backup list",
         "sos backup clean",
         "sos restore",
@@ -57,6 +61,7 @@ def test_reference_docs_exist_and_use_current_cli_terms() -> None:
         "sync_policy",
         "paths.vault_root",
         "skills.name",
+        "skills.description",
         "skills.source_path",
         "skills.vault_path",
         "skills.origin",
@@ -64,6 +69,28 @@ def test_reference_docs_exist_and_use_current_cli_terms() -> None:
         "triggers",
     ):
         assert field in combined
+
+
+def test_readmes_include_new_pack_inspection_commands() -> None:
+    english = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    chinese = (REPO_ROOT / "README_CN.md").read_text(encoding="utf-8")
+    for text in (english, chinese):
+        assert "sos pack list" in text
+        assert "sos pack show" in text
+        assert "sos changes" in text
+
+
+def test_readmes_have_readable_language_switches_and_no_mojibake() -> None:
+    english = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    chinese = (REPO_ROOT / "README_CN.md").read_text(encoding="utf-8")
+
+    assert "[English](README.md) | [中文](README_CN.md)" in english
+    assert "[English](README.md) | [中文](README_CN.md)" in chinese
+    assert "你的 agent skills" in chinese
+
+    for marker in ("涓", "锛", "銆", "€", "乻"):
+        assert marker not in english
+        assert marker not in chinese
 
 
 def test_fixture_roots_propose_builtin_apify_obsidian_and_game_packs() -> None:
@@ -189,6 +216,25 @@ def test_opt_in_real_skill_roots_stay_dry_run_only() -> None:
         )
 
     assert expected <= pack_ids
+
+
+def test_pack_composition_reference_matches_implemented_proposal_scope() -> None:
+    reference = (REPO_ROOT / "references" / "pack-composition.md").read_text(
+        encoding="utf-8"
+    )
+
+    for expected_text in (
+        "`name` and `description`",
+        "Apify",
+        "Obsidian",
+        "Game Design",
+        "Docs",
+        "Browser",
+        "Deploy",
+        "Data",
+        "opaque model output",
+    ):
+        assert expected_text in reference
 
 
 def _disabled_config_paths(codex_config: Path) -> set[str]:

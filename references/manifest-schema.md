@@ -17,6 +17,7 @@ Implemented pack-level fields:
 Implemented skill entry fields:
 
 - `skills.name`: source skill name.
+- `skills.description`: source skill description used for pack inspection and selection.
 - `skills.source_path`: original active skill folder copied from the scanned root.
 - `skills.vault_path`: copied skill folder under the SOS vault.
 - `skills.origin`: source environment label.
@@ -27,6 +28,9 @@ Implemented skill entry fields:
 
 Related commands:
 
+- `sos pack list --runtime-root <.sos>` lists runtime packs.
+- `sos pack show <pack> --runtime-root <.sos>` shows one pack and its skills.
+- `sos changes --root <skills> --runtime-root <.sos> --codex-config <config.toml>` reports new, missing, changed, or unexpectedly enabled skills without writing.
 - `sos plan` writes the auditable plan that contains manifest metadata.
 - `sos apply --apply` writes pack manifests, registry, vault copies, pointers, and config disables.
 - `sos status --runtime-root <.sos>` summarizes written runtime state.

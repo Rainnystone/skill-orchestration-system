@@ -47,7 +47,10 @@ def test_render_pack_pointer_is_short_and_mentions_activation_manifest_and_vault
         in rendered
     )
     assert str(expected_manifest_path) in rendered
-    assert "choose the matching vault skill from the manifest" in rendered
+    assert "If the user names a skill" in rendered
+    assert "match it exactly against manifest `skills.name`" in rendered
+    assert "State the selected vault skill and why it was selected" in rendered
+    assert "do not read every packed skill up front" in rendered
 
 
 def test_render_companion_skill_mentions_management_commands_and_apply_boundary(

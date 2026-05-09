@@ -15,6 +15,7 @@ from sos.models import (
 )
 from sos.paths import RuntimePaths
 from sos.propose import PackProposal
+from sos.scanner import read_skill_frontmatter
 from sos.skill_fs import validate_skill_folder
 from sos.toml_io import read_toml, write_toml
 
@@ -164,12 +165,14 @@ def _skill_entry(
     source_path = active_root / skill_name
     _ensure_under(source_path, active_root, "source skill path")
     validate_skill_folder(source_path)
+    frontmatter = read_skill_frontmatter(source_path / "SKILL.md")
     vault_path = runtime_paths.vault / pack_id / skill_name
     _ensure_under(vault_path, runtime_paths.vault, "vault target path")
     return SkillEntry(
         name=skill_name,
         source_path=source_path,
         vault_path=vault_path,
+        description=frontmatter.get("description", ""),
         origin="codex",
         enabled_before_apply=True,
     )
@@ -414,6 +417,7 @@ def _skill_entry_to_dict(skill: SkillEntry) -> dict[str, Any]:
         "name": skill.name,
         "source_path": str(skill.source_path),
         "vault_path": str(skill.vault_path),
+        "description": skill.description,
         "origin": skill.origin,
         "enabled_before_apply": skill.enabled_before_apply,
         "last_source_fingerprint": skill.last_source_fingerprint,

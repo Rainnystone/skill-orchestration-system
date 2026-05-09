@@ -8,9 +8,11 @@ from typing import Any
 from sos import __version__
 from sos.apply import apply_write_plan
 from sos.backups import list_backups, prune_backups, restore_backup
+from sos.changes import detect_changes
 from sos.codex_config import load_codex_config
 from sos.manifest import load_registry
-from sos.models import OperationKind, WriteOperation, WritePlan
+from sos.models import OperationKind, SkillEntry, WriteOperation, WritePlan
+from sos.pack_inspect import filter_pack_skill, list_pack_manifests, load_runtime_pack
 from sos.paths import RuntimePaths
 from sos.planner import (
     build_pack_apply_plan,
@@ -83,9 +85,25 @@ def _build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--apply", action="store_true")
     sync.set_defaults(handler=_handle_pack_sync)
 
+    pack_list = pack_subcommands.add_parser("list", help="list runtime packs")
+    pack_list.add_argument("--runtime-root", required=True)
+    pack_list.set_defaults(handler=_handle_pack_list)
+
+    show = pack_subcommands.add_parser("show", help="show runtime pack details")
+    show.add_argument("pack")
+    show.add_argument("--runtime-root", required=True)
+    show.add_argument("--skill")
+    show.set_defaults(handler=_handle_pack_show)
+
     status = subcommands.add_parser("status", help="summarize runtime status")
     status.add_argument("--runtime-root", required=True)
     status.set_defaults(handler=_handle_status)
+
+    changes = subcommands.add_parser("changes", help="report runtime drift without writing")
+    changes.add_argument("--root", required=True)
+    changes.add_argument("--runtime-root", required=True)
+    changes.add_argument("--codex-config", required=True)
+    changes.set_defaults(handler=_handle_changes)
 
     backup = subcommands.add_parser("backup", help="backup management")
     backup_subcommands = backup.add_subparsers(dest="backup_command", required=True)
@@ -214,6 +232,50 @@ def _handle_pack_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_pack_list(args: argparse.Namespace) -> int:
+    runtime_paths = RuntimePaths.from_root(args.runtime_root)
+    manifests = list_pack_manifests(runtime_paths)
+    print(f"pack root: {runtime_paths.packs}")
+    print(f"packs: {len(manifests)}")
+    for manifest in manifests:
+        print(f"- {manifest.id}: {manifest.display_name}")
+        print(f"  pointer: {manifest.pointer_skill}")
+        print(f"  skills: {len(manifest.skills)}")
+        print(f"  sync_policy: {manifest.sync_policy}")
+        if manifest.description:
+            print(f"  description: {manifest.description}")
+    return 0
+
+
+def _handle_pack_show(args: argparse.Namespace) -> int:
+    runtime_paths = RuntimePaths.from_root(args.runtime_root)
+    manifest = load_runtime_pack(runtime_paths, args.pack)
+    if args.skill:
+        manifest = filter_pack_skill(manifest, args.skill)
+    print(f"pack: {manifest.id}")
+    print(f"display_name: {manifest.display_name}")
+    print(f"manifest: {runtime_paths.packs / f'{manifest.id}.toml'}")
+    print(f"vault_root: {manifest.vault_root or ''}")
+    print(f"pointer: {manifest.pointer_skill}")
+    print(f"aliases: {', '.join(manifest.aliases)}")
+    print(f"sync_policy: {manifest.sync_policy}")
+    if manifest.description:
+        print(f"description: {manifest.description}")
+    print(f"skills: {len(manifest.skills)}")
+    for skill in manifest.skills:
+        print(f"- {skill.name}")
+        if skill.description:
+            print(f"  description: {skill.description}")
+        print(f"  source: {skill.source_path}")
+        print(f"  vault: {skill.vault_path}")
+        print(f"  origin: {skill.origin}")
+        if skill.last_source_fingerprint:
+            print(f"  last_source_fingerprint: {skill.last_source_fingerprint}")
+        if skill.last_vault_fingerprint:
+            print(f"  last_vault_fingerprint: {skill.last_vault_fingerprint}")
+    return 0
+
+
 def _handle_status(args: argparse.Namespace) -> int:
     runtime_paths = RuntimePaths.from_root(args.runtime_root)
     registry_path = runtime_paths.state / "registry.toml"
@@ -232,6 +294,30 @@ def _handle_status(args: argparse.Namespace) -> int:
     print(f"backups: {len(backups)}")
     if backups:
         print(f"latest_backup: {backups[0].backup_id}")
+    return 0
+
+
+def _handle_changes(args: argparse.Namespace) -> int:
+    root = Path(args.root)
+    runtime_paths = RuntimePaths.from_root(args.runtime_root)
+    report = detect_changes(root, runtime_paths, Path(args.codex_config))
+    print(f"scan root: {root}")
+    print(f"runtime_root: {runtime_paths.root}")
+    _print_path_section("new unmanaged skills", report.new_unmanaged)
+    _print_skill_section("source missing", report.source_missing, "source_path")
+    _print_skill_section("source changed", report.source_changed, "source_path")
+    _print_skill_section("vault changed", report.vault_changed, "vault_path")
+    _print_path_section("pointer missing", report.pointer_missing)
+    _print_path_section("pointer stale", report.pointer_stale)
+    _print_skill_section(
+        "managed source unexpectedly enabled",
+        report.managed_source_enabled,
+        "source_path",
+    )
+    print("next safe actions:")
+    print("- review listed paths before any plan or apply step")
+    print("- disable managed source skills in Codex config if they should stay vault-managed")
+    print("- restore missing pointers or re-run the relevant pack workflow after review")
     return 0
 
 
@@ -379,6 +465,18 @@ def _annotate_backup_metadata(
 def _manifest_path(runtime_paths: RuntimePaths, pack_id: str) -> Path:
     _safe_component(pack_id, "pack")
     return runtime_paths.packs / f"{pack_id}.toml"
+
+
+def _print_path_section(label: str, paths: Sequence[Path]) -> None:
+    print(f"{label}: {len(paths)}")
+    for path in paths:
+        print(f"- {path}")
+
+
+def _print_skill_section(label: str, skills: Sequence[SkillEntry], attr: str) -> None:
+    print(f"{label}: {len(skills)}")
+    for skill in skills:
+        print(f"- {getattr(skill, attr)}")
 
 
 def _print_operations(operations: tuple[WriteOperation, ...]) -> None:

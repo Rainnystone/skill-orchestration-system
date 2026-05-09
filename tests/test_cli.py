@@ -8,6 +8,7 @@ from sos.fingerprint import fingerprint_dir
 from sos.manifest import save_pack_manifest, save_registry
 from sos.models import PackManifest, Registry, SkillEntry
 from sos.paths import RuntimePaths
+from sos.pointer import render_companion_skill
 from sos.cli import main
 from sos.toml_io import read_toml, write_toml
 
@@ -324,6 +325,73 @@ def test_pack_sync_with_apply_updates_vault_and_manifest(capsys, tmp_path: Path)
     assert (vault / "SKILL.md").read_text(encoding="utf-8") == "# Updated source\n"
 
 
+def test_pack_list_reports_runtime_packs_without_writing(capsys, tmp_path: Path):
+    runtime_paths, _ = _write_runtime_pack(tmp_path / ".sos")
+    registry_path = runtime_paths.state / "registry.toml"
+    original_registry = registry_path.read_text(encoding="utf-8")
+
+    exit_code = main(["pack", "list", "--runtime-root", str(runtime_paths.root)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "packs: 1" in captured.out
+    assert "- apify: Apify" in captured.out
+    assert "pointer: sos-apify" in captured.out
+    assert "skills: 1" in captured.out
+    assert "sync_policy: clean-auto" in captured.out
+    assert registry_path.read_text(encoding="utf-8") == original_registry
+
+
+def test_pack_show_reports_manifest_vault_and_skill_descriptions(capsys, tmp_path: Path):
+    runtime_paths, manifest = _write_runtime_pack(tmp_path / ".sos")
+
+    exit_code = main(["pack", "show", "apify", "--runtime-root", str(runtime_paths.root)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert f"manifest: {runtime_paths.packs / 'apify.toml'}" in captured.out
+    assert f"vault_root: {runtime_paths.vault / 'apify'}" in captured.out
+    assert "pointer: sos-apify" in captured.out
+    assert "apify-actor-development" in captured.out
+    assert "Develop and debug Apify Actors." in captured.out
+    assert f"source: {manifest.skills[0].source_path}" in captured.out
+    assert f"vault: {manifest.skills[0].vault_path}" in captured.out
+
+
+def test_pack_show_skill_filters_exact_match_and_rejects_unknown(capsys, tmp_path: Path):
+    runtime_paths, manifest = _write_runtime_pack(tmp_path / ".sos")
+
+    exit_code = main(
+        [
+            "pack",
+            "show",
+            "apify",
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--skill",
+            manifest.skills[0].name,
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "skills: 1" in captured.out
+    assert manifest.skills[0].name in captured.out
+
+    with pytest.raises(ValueError, match="unknown skill.*missing-skill"):
+        main(
+            [
+                "pack",
+                "show",
+                "apify",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--skill",
+                "missing-skill",
+            ]
+        )
+
+
 def test_status_reports_runtime_registry_and_backups(capsys, tmp_path: Path):
     runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
     save_registry(
@@ -350,6 +418,273 @@ def test_status_reports_runtime_registry_and_backups(capsys, tmp_path: Path):
     assert "apify" in captured.out
     assert "sos-apify" in captured.out
     assert "backups: 1" in captured.out
+
+
+def test_changes_reports_new_unmanaged_skill_without_writing(capsys, tmp_path: Path):
+    root = tmp_path / "skills"
+    runtime_paths, _manifest = _write_runtime_pack(tmp_path / ".sos")
+    new_skill = _write_skill(root, "new-docs-skill")
+    codex_config = _write_codex_config(tmp_path)
+    original_config = codex_config.read_text(encoding="utf-8")
+
+    exit_code = main(
+        [
+            "changes",
+            "--root",
+            str(root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--codex-config",
+            str(codex_config),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "new unmanaged skills: 1" in captured.out
+    assert f"- {new_skill}" in captured.out
+    assert codex_config.read_text(encoding="utf-8") == original_config
+
+
+def test_changes_reports_stale_pointer_without_writing(capsys, tmp_path: Path):
+    root = tmp_path / "skills"
+    runtime_paths, manifest = _write_runtime_pack(tmp_path / ".sos")
+    stale_pointer = root / manifest.pointer_skill / "SKILL.md"
+    stale_pointer.parent.mkdir(parents=True, exist_ok=True)
+    stale_pointer.write_text("# stale pointer\n", encoding="utf-8")
+    render_companion_skill(
+        root / "sos-haruhi" / "SKILL.md",
+        runtime_paths.state / "registry.toml",
+    )
+    codex_config = _write_codex_config(tmp_path)
+    original_stale = stale_pointer.read_text(encoding="utf-8")
+
+    exit_code = main(
+        [
+            "changes",
+            "--root",
+            str(root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--codex-config",
+            str(codex_config),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "pointer stale: 1" in captured.out
+    assert f"- {stale_pointer}" in captured.out
+    assert stale_pointer.read_text(encoding="utf-8") == original_stale
+
+
+def test_changes_uses_current_pack_manifest_for_drift(capsys, tmp_path: Path):
+    root = tmp_path / "skills"
+    runtime_paths, manifest = _write_runtime_pack(tmp_path / ".sos")
+    skill = manifest.skills[0]
+    current_manifest = PackManifest(
+        id=manifest.id,
+        display_name=manifest.display_name,
+        description=manifest.description,
+        pointer_skill=manifest.pointer_skill,
+        aliases=manifest.aliases,
+        sync_policy=manifest.sync_policy,
+        vault_root=manifest.vault_root,
+        skills=(
+            SkillEntry(
+                name=skill.name,
+                description=skill.description,
+                source_path=skill.source_path,
+                vault_path=skill.vault_path,
+                origin=skill.origin,
+                last_source_fingerprint=fingerprint_dir(skill.source_path),
+                last_vault_fingerprint=fingerprint_dir(skill.vault_path),
+                last_synced_at="2026-04-24T00:00:00+00:00",
+            ),
+        ),
+    )
+    stale_registry_manifest = PackManifest(
+        id=manifest.id,
+        display_name=manifest.display_name,
+        description=manifest.description,
+        pointer_skill=manifest.pointer_skill,
+        aliases=manifest.aliases,
+        sync_policy=manifest.sync_policy,
+        vault_root=manifest.vault_root,
+        skills=(
+            SkillEntry(
+                name=skill.name,
+                description=skill.description,
+                source_path=skill.source_path,
+                vault_path=skill.vault_path,
+                origin=skill.origin,
+                last_source_fingerprint="sha256:stale-source",
+                last_vault_fingerprint="sha256:stale-vault",
+                last_synced_at="2026-04-23T00:00:00+00:00",
+            ),
+        ),
+    )
+    save_pack_manifest(runtime_paths.packs / "apify.toml", current_manifest)
+    save_registry(
+        runtime_paths.state / "registry.toml",
+        Registry(
+            packs=(stale_registry_manifest,),
+            active_pointers=("sos-haruhi", "sos-apify"),
+        ),
+    )
+    codex_config = _write_codex_config(
+        tmp_path,
+        disabled_paths=(skill.source_path / "SKILL.md",),
+    )
+
+    exit_code = main(
+        [
+            "changes",
+            "--root",
+            str(root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--codex-config",
+            str(codex_config),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "source changed: 0" in captured.out
+    assert "vault changed: 0" in captured.out
+
+
+def test_changes_reports_unbaselined_source_vault_mismatch(
+    capsys,
+    tmp_path: Path,
+):
+    root = tmp_path / "skills"
+    runtime_paths, manifest = _write_runtime_pack(tmp_path / ".sos")
+    skill = manifest.skills[0]
+    (skill.source_path / "SKILL.md").write_text("# Edited source\n", encoding="utf-8")
+    codex_config = _write_codex_config(
+        tmp_path,
+        disabled_paths=(skill.source_path / "SKILL.md",),
+    )
+
+    exit_code = main(
+        [
+            "changes",
+            "--root",
+            str(root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--codex-config",
+            str(codex_config),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "source changed: 1" in captured.out
+    assert f"- {skill.source_path}" in captured.out
+
+
+def test_changes_reports_source_and_vault_drift(capsys, tmp_path: Path):
+    runtime_paths, manifest = _write_runtime_pack(tmp_path / ".sos")
+    root = tmp_path / "skills"
+    managed_source = _write_skill(root, "apify-actor-development")
+    managed_vault = manifest.skills[0].vault_path
+    managed_vault.joinpath("SKILL.md").write_text("# Changed vault\n", encoding="utf-8")
+    manifest = PackManifest(
+        id=manifest.id,
+        display_name=manifest.display_name,
+        description=manifest.description,
+        pointer_skill=manifest.pointer_skill,
+        aliases=manifest.aliases,
+        sync_policy=manifest.sync_policy,
+        vault_root=manifest.vault_root,
+        skills=(
+            SkillEntry(
+                name="apify-actor-development",
+                description="Develop and debug Apify Actors.",
+                source_path=managed_source,
+                vault_path=managed_vault,
+                origin="codex",
+                last_source_fingerprint="sha256:old-source",
+                last_vault_fingerprint="sha256:old-vault",
+            ),
+        ),
+    )
+    save_pack_manifest(runtime_paths.packs / "apify.toml", manifest)
+    save_registry(
+        runtime_paths.state / "registry.toml",
+        Registry(packs=(manifest,), active_pointers=("sos-haruhi", "sos-apify")),
+    )
+    codex_config = _write_codex_config(tmp_path)
+
+    exit_code = main(
+        [
+            "changes",
+            "--root",
+            str(root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--codex-config",
+            str(codex_config),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "source changed: 1" in captured.out
+    assert "vault changed: 1" in captured.out
+    assert "managed source unexpectedly enabled: 1" in captured.out
+
+
+def test_pack_sync_after_apply_reports_ready_without_baseline_conflict(
+    capsys,
+    tmp_path: Path,
+):
+    root = tmp_path / "skills"
+    _write_skill(root, "apify-actor-development")
+    runtime_root = tmp_path / ".sos"
+    codex_config = _write_codex_config(tmp_path)
+    plan_path = _write_cli_plan(tmp_path, root, runtime_root, codex_config)
+    apply_exit = main(["apply", "--plan", str(plan_path), "--apply"])
+
+    sync_exit = main(["pack", "sync", "apify", "--runtime-root", str(runtime_root)])
+
+    captured = capsys.readouterr()
+    assert apply_exit == 0
+    assert sync_exit == 0
+    assert "status: ready" in captured.out
+    assert "conflict" not in captured.out
+
+
+def test_changes_does_not_report_disabled_unmanaged_skill_as_active(
+    capsys,
+    tmp_path: Path,
+):
+    root = tmp_path / "skills"
+    disabled_skill = _write_skill(root, "disabled-docs-skill")
+    runtime_paths, _manifest = _write_runtime_pack(tmp_path / ".sos")
+    codex_config = _write_codex_config(
+        tmp_path,
+        disabled_paths=(disabled_skill / "SKILL.md",),
+    )
+
+    exit_code = main(
+        [
+            "changes",
+            "--root",
+            str(root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--codex-config",
+            str(codex_config),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "new unmanaged skills: 0" in captured.out
 
 
 def test_backup_list_restore_and_clean_commands(capsys, tmp_path: Path):
@@ -630,6 +965,44 @@ def _write_sync_manifest(runtime_root: Path, pack_id: str) -> tuple[Path, Path]:
     )
     save_pack_manifest(runtime_paths.packs / f"{pack_id}.toml", manifest)
     return source, vault
+
+
+def _write_runtime_pack(
+    runtime_root: Path,
+    pack_id: str = "apify",
+    skill_name: str = "apify-actor-development",
+    skill_description: str = "Develop and debug Apify Actors.",
+) -> tuple[RuntimePaths, PackManifest]:
+    runtime_paths = RuntimePaths.from_root(runtime_root)
+    source = _write_skill(runtime_root / "sources", skill_name, "# Original\n")
+    vault = _write_skill(runtime_paths.vault / pack_id, skill_name, "# Original\n")
+    manifest = PackManifest(
+        id=pack_id,
+        display_name=pack_id.title(),
+        description="Shared source/tool family signal: Apify.",
+        pointer_skill=f"sos-{pack_id}",
+        aliases=(pack_id,),
+        sync_policy="clean-auto",
+        vault_root=runtime_paths.vault / pack_id,
+        skills=(
+            SkillEntry(
+                name=skill_name,
+                description=skill_description,
+                source_path=source,
+                vault_path=vault,
+                origin="codex",
+            ),
+        ),
+    )
+    save_pack_manifest(runtime_paths.packs / f"{pack_id}.toml", manifest)
+    save_registry(
+        runtime_paths.state / "registry.toml",
+        Registry(
+            packs=(manifest,),
+            active_pointers=("sos-haruhi", f"sos-{pack_id}"),
+        ),
+    )
+    return runtime_paths, manifest
 
 
 def _write_config_and_vault(tmp_path: Path) -> tuple[Path, Path]:
