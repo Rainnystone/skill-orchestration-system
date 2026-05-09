@@ -172,17 +172,17 @@ def test_propose_uses_skill_head_for_conservative_functional_groups(tmp_path: Pa
             skill_md=tmp_path / "docx-editor" / "SKILL.md",
         ),
         ScannedSkill(
-            name="markdown-publisher",
-            description="Publish markdown documentation.",
-            folder=tmp_path / "markdown-publisher",
-            skill_md=tmp_path / "markdown-publisher" / "SKILL.md",
+            name="markdown-editor",
+            description="Edit markdown documentation.",
+            folder=tmp_path / "markdown-editor",
+            skill_md=tmp_path / "markdown-editor" / "SKILL.md",
         ),
     )
 
     proposals = propose_builtin_packs(skills)
 
     assert tuple(proposal.pack_id for proposal in proposals) == ("docs",)
-    assert proposals[0].skill_names == ("docx-editor", "markdown-publisher")
+    assert proposals[0].skill_names == ("docx-editor", "markdown-editor")
     assert "functional" in proposals[0].reason.lower()
 
 
@@ -214,3 +214,16 @@ def test_propose_covers_documented_functional_groups(tmp_path: Path):
     assert by_pack["browser"] == ("playwright-browser",)
     assert by_pack["deploy"] == ("render-deploy",)
     assert by_pack["data"] == ("csv-transform",)
+
+
+def test_propose_skips_skills_that_match_multiple_functional_groups(tmp_path: Path):
+    skills = (
+        ScannedSkill(
+            name="browser-docs-helper",
+            description="Capture browser screenshots for documentation.",
+            folder=tmp_path / "browser-docs-helper",
+            skill_md=tmp_path / "browser-docs-helper" / "SKILL.md",
+        ),
+    )
+
+    assert propose_builtin_packs(skills) == ()

@@ -118,14 +118,13 @@ def propose_builtin_packs(skills: Iterable[ScannedSkill]) -> tuple[PackProposal,
             matched_names = {skill.name for skill in matches}
             remaining = [skill for skill in remaining if skill.name not in matched_names]
 
-    for pack_id, keywords, reason in FUNCTIONAL_GROUPS:
-        matches = _matching_skills(remaining, pack_id, keywords)
+    functional_matches = _functional_group_matches(remaining)
+    for pack_id, _, reason in FUNCTIONAL_GROUPS:
+        matches = functional_matches[pack_id]
         if matches:
             proposals.extend(
                 _proposals(pack_id, tuple(skill.name for skill in matches), reason)
             )
-            matched_names = {skill.name for skill in matches}
-            remaining = [skill for skill in remaining if skill.name not in matched_names]
 
     return tuple(proposals)
 
@@ -255,6 +254,41 @@ def _matching_skills(
             for keyword in keywords
         ):
             matches.append(skill)
+
+    return tuple(matches)
+
+
+def _functional_group_matches(
+    skills: list[ScannedSkill],
+) -> dict[str, tuple[ScannedSkill, ...]]:
+    grouped: dict[str, list[ScannedSkill]] = {
+        pack_id: [] for pack_id, _, _ in FUNCTIONAL_GROUPS
+    }
+
+    for skill in skills:
+        matched_groups = _matching_functional_groups(skill)
+        if len(matched_groups) == 1:
+            grouped[matched_groups[0][0]].append(skill)
+
+    return {
+        pack_id: tuple(grouped[pack_id])
+        for pack_id, _, _ in FUNCTIONAL_GROUPS
+    }
+
+
+def _matching_functional_groups(
+    skill: ScannedSkill,
+) -> tuple[tuple[str, tuple[str, ...], str], ...]:
+    head_text = _skill_head_text(skill)
+    normalized_head_text = _normalized_text(head_text)
+    matches: list[tuple[str, tuple[str, ...], str]] = []
+
+    for pack_id, keywords, reason in FUNCTIONAL_GROUPS:
+        if any(
+            _matches_keyword(pack_id, keyword, normalized_head_text)
+            for keyword in keywords
+        ):
+            matches.append((pack_id, keywords, reason))
 
     return tuple(matches)
 
