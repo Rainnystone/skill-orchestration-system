@@ -67,10 +67,10 @@ def test_claude_code_reference_is_future_only():
 
 def test_public_skill_files_do_not_contain_private_local_paths():
     forbidden = (
-        "F:\\",
-        "C:\\Users",
-        "Users\\Administrator",
-        "vibe coding",
+        "F:" + "\\",
+        "C:" + "\\Users",
+        "Users" + "\\Administrator",
+        "vibe" + " coding",
     )
     for path in sorted(SKILL_ROOT.rglob("*")):
         if path.suffix not in {".md", ".py"}:
