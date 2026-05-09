@@ -55,6 +55,7 @@ class SkillEntry:
     name: str
     source_path: Path
     vault_path: Path
+    description: str = ""
     origin: str = ""
     enabled_before_apply: bool = True
     last_source_fingerprint: str = ""

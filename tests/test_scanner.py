@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from sos.scanner import scan_skill_roots
 
 
@@ -27,4 +29,37 @@ def test_scan_skill_roots_excludes_disabled_skill_md_paths():
         "apify-actor-development",
         "game-studio",
     )
+
+
+def test_scan_frontmatter_does_not_use_full_file_read(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    root = tmp_path / "skills"
+    skill_dir = root / "large-skill"
+    skill_dir.mkdir(parents=True)
+    skill_md = skill_dir / "SKILL.md"
+    skill_md.write_text(
+        "---\n"
+        "name: large-skill\n"
+        "description: Frontmatter only.\n"
+        "---\n"
+        "# Large Skill\n"
+        "Body content that should not be read eagerly.\n",
+        encoding="utf-8",
+    )
+
+    original_read_text = Path.read_text
+
+    def guarded_read_text(self: Path, *args, **kwargs) -> str:
+        if self == skill_md:
+            raise AssertionError("scan should not read the full SKILL.md body")
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", guarded_read_text)
+
+    skills = scan_skill_roots((root,))
+
+    assert len(skills) == 1
+    assert skills[0].name == "large-skill"
+    assert skills[0].description == "Frontmatter only."
 

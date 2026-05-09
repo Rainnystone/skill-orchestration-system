@@ -33,7 +33,7 @@ def scan_skill_roots(
 
 
 def _scan_skill(skill_md: Path) -> ScannedSkill:
-    frontmatter = _read_frontmatter(skill_md)
+    frontmatter = read_skill_frontmatter(skill_md)
     fallback_name = skill_md.parent.name
     return ScannedSkill(
         name=frontmatter.get("name", fallback_name),
@@ -43,19 +43,20 @@ def _scan_skill(skill_md: Path) -> ScannedSkill:
     )
 
 
-def _read_frontmatter(skill_md: Path) -> dict[str, str]:
-    lines = skill_md.read_text(encoding="utf-8").splitlines()
-    if not lines or lines[0].strip() != "---":
-        return {}
+def read_skill_frontmatter(skill_md: Path) -> dict[str, str]:
+    with skill_md.open("r", encoding="utf-8") as handle:
+        first_line = handle.readline()
+        if first_line.strip() != "---":
+            return {}
 
-    fields: dict[str, str] = {}
-    for line in lines[1:]:
-        if line.strip() == "---":
-            break
-        key, separator, value = line.partition(":")
-        if separator and key.strip() in {"name", "description"}:
-            fields[key.strip()] = value.strip().strip("\"'")
-    return fields
+        fields: dict[str, str] = {}
+        for line in handle:
+            if line.strip() == "---":
+                break
+            key, separator, value = line.partition(":")
+            if separator and key.strip() in {"name", "description"}:
+                fields[key.strip()] = value.strip().strip("\"'")
+        return fields
 
 
 def _comparable_path(path: Path) -> Path:

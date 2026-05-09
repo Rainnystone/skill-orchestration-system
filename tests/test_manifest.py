@@ -122,6 +122,7 @@ def test_pack_manifest_round_trip_preserves_fingerprints_and_triggers(tmp_path: 
                 name="work-skill",
                 source_path=tmp_path / "source" / "work-skill",
                 vault_path=tmp_path / "vault" / "work" / "work-skill",
+                description="Build work automations.",
                 origin="codex",
                 enabled_before_apply=False,
                 last_source_fingerprint="sha256:source",
@@ -149,12 +150,37 @@ def test_pack_manifest_round_trip_preserves_fingerprints_and_triggers(tmp_path: 
     assert skill.name == "work-skill"
     assert skill.source_path == tmp_path / "source" / "work-skill"
     assert skill.vault_path == tmp_path / "vault" / "work" / "work-skill"
+    assert skill.description == "Build work automations."
     assert skill.origin == "codex"
     assert skill.enabled_before_apply is False
     assert skill.last_source_fingerprint == "sha256:source"
     assert skill.last_vault_fingerprint == "sha256:vault"
     assert skill.last_synced_at == "2026-04-24T15:28:00+08:00"
     assert dict(reloaded.triggers[0]) == {"term": "work", "reason": "Work automation tasks."}
+
+
+def test_pack_manifest_loads_skill_without_description_as_empty_string(tmp_path: Path):
+    manifest_path = tmp_path / "packs" / "legacy.toml"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        """
+id = "legacy"
+display_name = "Legacy"
+pointer_skill = "sos-legacy"
+
+[[skills]]
+name = "legacy-skill"
+source_path = "source/legacy-skill"
+vault_path = "vault/legacy/legacy-skill"
+origin = "codex"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = load_pack_manifest(manifest_path)
+
+    assert loaded.skills[0].description == ""
 
 
 def test_registry_rejects_duplicate_aliases_and_pointer_names():
