@@ -28,6 +28,12 @@ Use propose to generate reviewable pack candidates. This is read-only.
 propose --root SKILLS_ROOT
 ```
 
+## Draft Pack Head Text
+
+When a pack proposal needs better agent routing, Codex may draft a short Pack Head from the selected skills' `name` and `description` fields. Treat it like an Agent Skill description: what the pack helps with, in terms the user may say.
+
+The draft must be part of a reviewable plan before SOS writes it. The SOS CLI must not call a model or silently rewrite the pack head during sync.
+
 ## Inspect Packs
 
 Pack inspection is read-only. Use it to inspect pack metadata before reading vault skill bodies.

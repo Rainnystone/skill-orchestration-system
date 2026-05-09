@@ -13,6 +13,7 @@ class PackProposal:
     pack_id: str
     skill_names: tuple[str, ...]
     reason: str
+    description: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "skill_names", tuple(self.skill_names))
@@ -32,6 +33,37 @@ GAME_STUDIO_FAMILY_NAMES = frozenset(
         "web-game-foundations",
     )
 )
+
+PACK_HEAD_DESCRIPTIONS = {
+    "apify": (
+        "Use this for Apify, web scraping, crawlers, browser automation, "
+        "and actor-based data extraction skills managed by SOS."
+    ),
+    "obsidian": (
+        "Use this for Obsidian or Canvas vault work, including notes, knowledge "
+        "bases, markdown, and JSON Canvas skills managed by SOS."
+    ),
+    "game-design": (
+        "Use this for browser game design, gameplay, sprites, WebGL, Phaser, "
+        "and playtesting skills managed by SOS."
+    ),
+    "docs": (
+        "Use this for documents, writing, markdown, docx, documentation, "
+        "publishing, and editing skills managed by SOS."
+    ),
+    "browser": (
+        "Use this for browser automation, Playwright, screenshots, page "
+        "inspection, and web workflow skills managed by SOS."
+    ),
+    "deploy": (
+        "Use this for deployment, hosting, Render, Vercel, Docker, publishing, "
+        "and service release skills managed by SOS."
+    ),
+    "data": (
+        "Use this for data workflows, including CSV, JSON, SQL, datasets, "
+        "analytics, extraction, and transformation skills managed by SOS."
+    ),
+}
 
 SOURCE_FAMILIES = (
     (
@@ -138,7 +170,14 @@ def _proposals(
     if len(skill_names) > 20:
         return _family_proposals(pack_id, skill_names, base_reason)
 
-    return (PackProposal(pack_id=pack_id, skill_names=skill_names, reason=base_reason),)
+    return (
+        PackProposal(
+            pack_id=pack_id,
+            skill_names=skill_names,
+            reason=base_reason,
+            description=_pack_head_description(pack_id),
+        ),
+    )
 
 
 def _family_proposals(
@@ -153,9 +192,21 @@ def _family_proposals(
             pack_id=f"{pack_id}-{family_key}",
             skill_names=family_skill_names,
             reason=reason,
+            description=_pack_head_description(pack_id),
         )
         for family_key, family_skill_names in _family_groups(pack_id, skill_names)
     )
+
+
+def _pack_head_description(pack_id: str) -> str:
+    if pack_id in PACK_HEAD_DESCRIPTIONS:
+        return PACK_HEAD_DESCRIPTIONS[pack_id]
+
+    for base_pack_id, description in PACK_HEAD_DESCRIPTIONS.items():
+        if pack_id.startswith(f"{base_pack_id}-"):
+            return description
+
+    return ""
 
 
 def _family_groups(

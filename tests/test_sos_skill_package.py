@@ -152,3 +152,11 @@ def test_workflows_include_pack_inspection_changes_and_skill_selection():
     assert "changes --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --codex-config CODEX_CONFIG" in text
     assert "Select A Skill Inside A Pack" in text
     assert "exactly against manifest `skills.name`" in text
+
+
+def test_workflows_explain_reviewable_pack_head_drafting():
+    text = _read(REFERENCES / "workflows.md")
+    assert "Pack Head" in text
+    assert "agent routing" in text
+    assert "reviewable plan" in text
+    assert "must not call a model" in text

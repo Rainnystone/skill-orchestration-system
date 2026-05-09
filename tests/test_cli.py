@@ -68,6 +68,8 @@ def test_propose_reports_builtin_packs_without_writing(capsys, tmp_path: Path):
     assert "apify" in captured.out
     assert "obsidian" in captured.out
     assert "game-design" in captured.out
+    assert "description: Use this for Apify" in captured.out
+    assert "web scraping" in captured.out
     assert not runtime_root.exists()
 
 
@@ -97,6 +99,9 @@ def test_plan_writes_only_explicit_plan_file(capsys, tmp_path: Path):
     assert plan_path.is_file()
     assert "write plan" in captured.out
     assert str(plan_path) in captured.out
+    assert "pack descriptions:" in captured.out
+    assert "apify: Use this for Apify" in captured.out
+    assert "web scraping" in captured.out
     assert not runtime_root.exists()
     assert codex_config.read_text(encoding="utf-8") == original_config
     assert (root / "apify-actor-development" / "SKILL.md").is_file()
@@ -114,6 +119,9 @@ def test_apply_without_apply_summarizes_plan_and_does_not_write(capsys, tmp_path
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "requires_apply: true" in captured.out
+    assert "pack descriptions:" in captured.out
+    assert "apify: Use this for Apify" in captured.out
+    assert "web scraping" in captured.out
     assert str(runtime_root / "vault" / "apify" / "apify-actor-development") in captured.out
     assert not runtime_root.exists()
     assert codex_config.read_text(encoding="utf-8") == original_config

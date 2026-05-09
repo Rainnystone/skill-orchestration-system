@@ -80,8 +80,14 @@ def summarize_write_plan(plan: WritePlan) -> str:
         f"requires_apply: {str(plan.requires_apply).lower()}",
         f"delete_source_requested: {str(plan.delete_source_requested).lower()}",
         f"second_confirmation: {str(plan.second_confirmation).lower()}",
-        "operations:",
     ]
+    pack_descriptions = _pack_descriptions(plan)
+    if pack_descriptions:
+        lines.append("pack descriptions:")
+        for pack_id, description in pack_descriptions:
+            lines.append(f"- {pack_id}: {description}")
+
+    lines.append("operations:")
     for operation in plan.operations:
         target = operation.target if operation.target is not None else operation.source
         lines.append(f"- {operation.kind.value}: {target}")
@@ -101,6 +107,25 @@ def summarize_write_plan(plan: WritePlan) -> str:
     return "\n".join(lines)
 
 
+def _pack_descriptions(plan: WritePlan) -> tuple[tuple[str, str], ...]:
+    descriptions: list[tuple[str, str]] = []
+
+    for operation in plan.operations:
+        if operation.kind != OperationKind.WRITE_MANIFEST:
+            continue
+
+        manifest = operation.metadata.get("manifest")
+        if not isinstance(manifest, Mapping):
+            continue
+
+        pack_id = str(manifest.get("id", operation.metadata.get("pack_id", "")))
+        description = " ".join(str(manifest.get("description", "")).split())
+        if pack_id and description:
+            descriptions.append((pack_id, description))
+
+    return tuple(descriptions)
+
+
 def _plan_id(
     runtime_paths: RuntimePaths,
     active_root: Path,
@@ -117,6 +142,7 @@ def _plan_id(
                 "pack_id": proposal.pack_id,
                 "skill_names": list(proposal.skill_names),
                 "reason": proposal.reason,
+                "description": proposal.description,
             }
             for proposal in proposals
         ],
@@ -144,7 +170,7 @@ def _pack_manifests(
                 pointer_skill=_pointer_skill(proposal.pack_id),
                 skills=skills,
                 aliases=_aliases(proposal.pack_id),
-                description=proposal.reason,
+                description=_pack_head_description(proposal),
                 triggers=tuple(
                     {"term": skill.name, "reason": proposal.reason}
                     for skill in skills
@@ -438,6 +464,14 @@ def _registry_to_dict(registry: Registry) -> dict[str, Any]:
 
 def _display_name(pack_id: str) -> str:
     return pack_id.replace("-", " ").title()
+
+
+def _pack_head_description(proposal: PackProposal) -> str:
+    description = " ".join(proposal.description.split())
+    if description:
+        return description
+
+    return f"Use this for {_display_name(proposal.pack_id)} skills managed by SOS."
 
 
 def _pointer_skill(pack_id: str) -> str:

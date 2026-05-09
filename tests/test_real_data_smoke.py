@@ -225,6 +225,9 @@ def test_pack_composition_reference_matches_implemented_proposal_scope() -> None
 
     for expected_text in (
         "`name` and `description`",
+        "Pack head",
+        "agent routing",
+        "reviewable semantic synthesis",
         "Apify",
         "Obsidian",
         "Game Design",
@@ -233,6 +236,7 @@ def test_pack_composition_reference_matches_implemented_proposal_scope() -> None
         "Deploy",
         "Data",
         "opaque model output",
+        "CLI must not call a model",
     ):
         assert expected_text in reference
 

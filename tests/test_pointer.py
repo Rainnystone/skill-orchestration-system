@@ -31,6 +31,15 @@ def _manifest(tmp_path: Path, pack_id: str, pointer_skill: str) -> PackManifest:
     )
 
 
+def _frontmatter_value(path: Path, key: str) -> str:
+    frontmatter = path.read_text(encoding="utf-8").split("---", 2)[1]
+    prefix = f"{key}: "
+    for line in frontmatter.splitlines():
+        if line.startswith(prefix):
+            return line.removeprefix(prefix).strip().strip('"')
+    raise AssertionError(f"missing frontmatter key: {key}")
+
+
 def test_render_pack_pointer_is_short_and_mentions_activation_manifest_and_vault_selection(
     tmp_path: Path,
 ):
@@ -51,6 +60,44 @@ def test_render_pack_pointer_is_short_and_mentions_activation_manifest_and_vault
     assert "match it exactly against manifest `skills.name`" in rendered
     assert "State the selected vault skill and why it was selected" in rendered
     assert "do not read every packed skill up front" in rendered
+
+
+def test_render_pack_pointer_uses_pack_head_description(tmp_path: Path):
+    target = tmp_path / "active" / "sos-apify" / "SKILL.md"
+    manifest = PackManifest(
+        id="apify",
+        display_name="Apify",
+        description=(
+            "Use this for Apify, web scraping, crawlers, browser automation, "
+            "and actor-based data extraction skills managed by SOS."
+        ),
+        pointer_skill="sos-apify",
+        aliases=("apify",),
+        vault_root=tmp_path / ".sos" / "vault" / "apify",
+    )
+
+    render_pack_pointer(target, manifest)
+
+    description = _frontmatter_value(target, "description")
+    assert description.startswith("Use this for Apify")
+    assert "web scraping" in description
+    assert "Shared source/tool family signal" not in description
+
+
+def test_render_pack_pointer_uses_safe_pack_head_fallback(tmp_path: Path):
+    target = tmp_path / "active" / "sos-work" / "SKILL.md"
+    manifest = PackManifest(
+        id="work",
+        display_name="Work",
+        pointer_skill="sos-work",
+        vault_root=tmp_path / ".sos" / "vault" / "work",
+    )
+
+    render_pack_pointer(target, manifest)
+
+    assert _frontmatter_value(target, "description") == (
+        "Use this for Work skills managed by SOS."
+    )
 
 
 def test_render_companion_skill_mentions_management_commands_and_apply_boundary(

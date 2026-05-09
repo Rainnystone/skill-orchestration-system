@@ -146,6 +146,8 @@ def _handle_propose(args: argparse.Namespace) -> int:
     for proposal in proposals:
         print(f"- {proposal.pack_id}: {', '.join(proposal.skill_names)}")
         print(f"  reason: {proposal.reason}")
+        if proposal.description:
+            print(f"  description: {proposal.description}")
     return 0
 
 

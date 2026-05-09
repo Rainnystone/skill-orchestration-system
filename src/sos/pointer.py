@@ -119,7 +119,10 @@ def _safe_pointer_skill_name(name: str) -> str:
 
 
 def _compact_description(manifest: PackManifest) -> str:
-    base = manifest.description or f"Activate the {manifest.display_name} SOS pack."
+    base = (
+        manifest.description
+        or f"Use this for {manifest.display_name} skills managed by SOS."
+    )
     compact = " ".join(base.split())
     return _yaml_quoted(compact[:180])
 

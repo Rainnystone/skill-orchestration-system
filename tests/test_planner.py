@@ -32,6 +32,10 @@ def _apify_proposal() -> PackProposal:
         pack_id="apify",
         skill_names=("apify-actor-development",),
         reason="Apify skill family.",
+        description=(
+            "Use this for Apify, web scraping, crawlers, browser automation, "
+            "and actor-based data extraction skills managed by SOS."
+        ),
     )
 
 
@@ -142,6 +146,9 @@ def test_plan_lists_source_deletion_candidates_without_enabling_deletion(tmp_pat
     assert plan.second_confirmation is False
     assert str(source) in summary
     assert "delete_source_requested: false" in summary
+    assert "pack descriptions:" in summary
+    assert "apify: Use this for Apify" in summary
+    assert "web scraping" in summary
     assert "candidate only" in summary
     delete_operations = [
         operation
@@ -170,6 +177,57 @@ def test_plan_manifest_metadata_preserves_skill_description(tmp_path: Path):
     manifest_metadata = dict(manifest_operation.metadata)["manifest"]
 
     assert manifest_metadata["skills"][0]["description"] == "apify-actor-development test skill."
+
+
+def test_plan_manifest_uses_pack_head_while_triggers_keep_reason(tmp_path: Path):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "apify-actor-development")
+
+    plan = build_pack_apply_plan(
+        _runtime_paths(tmp_path),
+        active_root,
+        tmp_path / "config.toml",
+        (_apify_proposal(),),
+    )
+
+    manifest_operation = next(
+        operation for operation in plan.operations if operation.kind == OperationKind.WRITE_MANIFEST
+    )
+    manifest_metadata = dict(manifest_operation.metadata)["manifest"]
+
+    assert manifest_metadata["description"].startswith("Use this for Apify")
+    assert "web scraping" in manifest_metadata["description"]
+    assert manifest_metadata["description"] != "Apify skill family."
+    assert manifest_metadata["triggers"][0]["reason"] == "Apify skill family."
+
+
+def test_plan_manifest_uses_safe_pack_head_fallback_for_legacy_proposals(
+    tmp_path: Path,
+):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "legacy-pack-skill")
+    proposal = PackProposal(
+        pack_id="legacy-pack",
+        skill_names=("legacy-pack-skill",),
+        reason="Legacy grouping reason.",
+    )
+
+    plan = build_pack_apply_plan(
+        _runtime_paths(tmp_path),
+        active_root,
+        tmp_path / "config.toml",
+        (proposal,),
+    )
+
+    manifest_operation = next(
+        operation for operation in plan.operations if operation.kind == OperationKind.WRITE_MANIFEST
+    )
+    manifest_metadata = dict(manifest_operation.metadata)["manifest"]
+
+    assert manifest_metadata["description"] == (
+        "Use this for Legacy Pack skills managed by SOS."
+    )
+    assert manifest_metadata["triggers"][0]["reason"] == "Legacy grouping reason."
 
 
 def test_plan_rejects_unvalidated_source_paths(tmp_path: Path):

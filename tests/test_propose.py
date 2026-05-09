@@ -25,6 +25,10 @@ def test_proposal_objects_include_pack_id_skill_names_and_reason():
     assert apify.pack_id == "apify"
     assert apify.skill_names == ("apify-actor-development",)
     assert "Apify" in apify.reason
+    assert "web scraping" in apify.description
+    assert "crawlers" in apify.description
+    assert "browser automation" in apify.description
+    assert "Shared source/tool family signal" not in apify.description
 
 
 def test_frontend_ui_ux_skills_are_not_v1_builtin_pack_proposals(tmp_path: Path):
@@ -53,6 +57,7 @@ def test_pack_proposal_freezes_skill_names_from_external_mutation():
     skill_names.append("second")
 
     assert proposal.skill_names == ("first",)
+    assert proposal.description == ""
 
 
 def test_oversized_builtin_pack_proposals_split_by_skill_family(tmp_path: Path):
@@ -84,6 +89,7 @@ def test_oversized_builtin_pack_proposals_split_by_skill_family(tmp_path: Path):
     assert all(len(proposal.skill_names) <= 20 for proposal in proposals)
     assert all("More than 20" in proposal.reason for proposal in proposals)
     assert all("skill/tool family" in proposal.reason for proposal in proposals)
+    assert all("web scraping" in proposal.description for proposal in proposals)
     assert "apify-2" not in tuple(proposal.pack_id for proposal in proposals)
 
 
@@ -200,6 +206,8 @@ def test_propose_uses_skill_head_for_conservative_functional_groups(tmp_path: Pa
     assert tuple(proposal.pack_id for proposal in proposals) == ("docs",)
     assert proposals[0].skill_names == ("docx-editor", "markdown-editor")
     assert "functional" in proposals[0].reason.lower()
+    assert "documents" in proposals[0].description
+    assert "writing" in proposals[0].description
 
 
 def test_propose_covers_documented_functional_groups(tmp_path: Path):
