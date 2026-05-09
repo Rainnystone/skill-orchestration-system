@@ -104,6 +104,22 @@ def test_propose_uses_description_for_source_tool_family(tmp_path: Path):
     assert "description" in proposals[0].reason.lower()
 
 
+def test_propose_uses_canvas_description_for_obsidian_family(tmp_path: Path):
+    skills = (
+        ScannedSkill(
+            name="canvas-helper",
+            description="Manage Canvas workflows.",
+            folder=tmp_path / "canvas-helper",
+            skill_md=tmp_path / "canvas-helper" / "SKILL.md",
+        ),
+    )
+
+    proposals = propose_builtin_packs(skills)
+
+    assert tuple(proposal.pack_id for proposal in proposals) == ("obsidian",)
+    assert proposals[0].skill_names == ("canvas-helper",)
+
+
 def test_source_family_takes_priority_over_functional_terms(tmp_path: Path):
     skills = (
         ScannedSkill(

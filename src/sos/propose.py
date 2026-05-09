@@ -40,7 +40,7 @@ SOURCE_FAMILIES = (
     ),
     (
         "obsidian",
-        ("obsidian", "json canvas", "json-canvas"),
+        ("obsidian", "canvas", "json canvas", "json-canvas"),
         "Shared source/tool family signal: Obsidian or Canvas in skill name or description.",
     ),
     (
