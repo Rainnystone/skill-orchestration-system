@@ -419,6 +419,113 @@ def test_status_reports_runtime_registry_and_backups(capsys, tmp_path: Path):
     assert "backups: 1" in captured.out
 
 
+def test_changes_reports_new_unmanaged_skill_without_writing(capsys, tmp_path: Path):
+    root = tmp_path / "skills"
+    runtime_paths, _manifest = _write_runtime_pack(tmp_path / ".sos")
+    new_skill = _write_skill(root, "new-docs-skill")
+    codex_config = _write_codex_config(tmp_path)
+    original_config = codex_config.read_text(encoding="utf-8")
+
+    exit_code = main(
+        [
+            "changes",
+            "--root",
+            str(root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--codex-config",
+            str(codex_config),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "new unmanaged skills: 1" in captured.out
+    assert f"- {new_skill}" in captured.out
+    assert codex_config.read_text(encoding="utf-8") == original_config
+
+
+def test_changes_reports_source_and_vault_drift(capsys, tmp_path: Path):
+    runtime_paths, manifest = _write_runtime_pack(tmp_path / ".sos")
+    root = tmp_path / "skills"
+    managed_source = _write_skill(root, "apify-actor-development")
+    managed_vault = manifest.skills[0].vault_path
+    managed_vault.joinpath("SKILL.md").write_text("# Changed vault\n", encoding="utf-8")
+    manifest = PackManifest(
+        id=manifest.id,
+        display_name=manifest.display_name,
+        description=manifest.description,
+        pointer_skill=manifest.pointer_skill,
+        aliases=manifest.aliases,
+        sync_policy=manifest.sync_policy,
+        vault_root=manifest.vault_root,
+        skills=(
+            SkillEntry(
+                name="apify-actor-development",
+                description="Develop and debug Apify Actors.",
+                source_path=managed_source,
+                vault_path=managed_vault,
+                origin="codex",
+                last_source_fingerprint="sha256:old-source",
+                last_vault_fingerprint="sha256:old-vault",
+            ),
+        ),
+    )
+    save_pack_manifest(runtime_paths.packs / "apify.toml", manifest)
+    save_registry(
+        runtime_paths.state / "registry.toml",
+        Registry(packs=(manifest,), active_pointers=("sos-haruhi", "sos-apify")),
+    )
+    codex_config = _write_codex_config(tmp_path)
+
+    exit_code = main(
+        [
+            "changes",
+            "--root",
+            str(root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--codex-config",
+            str(codex_config),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "source changed: 1" in captured.out
+    assert "vault changed: 1" in captured.out
+    assert "managed source unexpectedly enabled: 1" in captured.out
+
+
+def test_changes_does_not_report_disabled_unmanaged_skill_as_active(
+    capsys,
+    tmp_path: Path,
+):
+    root = tmp_path / "skills"
+    disabled_skill = _write_skill(root, "disabled-docs-skill")
+    runtime_paths, _manifest = _write_runtime_pack(tmp_path / ".sos")
+    codex_config = _write_codex_config(
+        tmp_path,
+        disabled_paths=(disabled_skill / "SKILL.md",),
+    )
+
+    exit_code = main(
+        [
+            "changes",
+            "--root",
+            str(root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--codex-config",
+            str(codex_config),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "new unmanaged skills: 0" in captured.out
+
+
 def test_backup_list_restore_and_clean_commands(capsys, tmp_path: Path):
     runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
     codex_config, vault_root = _write_config_and_vault(tmp_path)
