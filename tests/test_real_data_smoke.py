@@ -41,8 +41,11 @@ def test_reference_docs_exist_and_use_current_cli_terms() -> None:
         "sos plan",
         "sos apply",
         "sos status",
+        "sos pack list",
         "sos pack activate",
+        "sos pack show",
         "sos pack sync",
+        "sos changes",
         "sos backup list",
         "sos backup clean",
         "sos restore",
@@ -58,6 +61,7 @@ def test_reference_docs_exist_and_use_current_cli_terms() -> None:
         "sync_policy",
         "paths.vault_root",
         "skills.name",
+        "skills.description",
         "skills.source_path",
         "skills.vault_path",
         "skills.origin",
@@ -65,6 +69,15 @@ def test_reference_docs_exist_and_use_current_cli_terms() -> None:
         "triggers",
     ):
         assert field in combined
+
+
+def test_readmes_include_new_pack_inspection_commands() -> None:
+    english = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    chinese = (REPO_ROOT / "README_CN.md").read_text(encoding="utf-8")
+    for text in (english, chinese):
+        assert "sos pack list" in text
+        assert "sos pack show" in text
+        assert "sos changes" in text
 
 
 def test_fixture_roots_propose_builtin_apify_obsidian_and_game_packs() -> None:

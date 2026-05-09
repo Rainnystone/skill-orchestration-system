@@ -303,8 +303,11 @@ A typical SOS runtime root looks like this:
 | `sos apply --plan <path>` | Summarize a plan. | No |
 | `sos apply --plan <path> --apply` | Copy skills, write manifests and pointers, disable originals, and create backups. | Yes |
 | `sos pack activate <pack> --runtime-root <path>` | Activate a pack and apply eligible clean syncs. | Sometimes |
+| `sos pack list --runtime-root <path>` | List written runtime packs. | No |
+| `sos pack show <pack> --runtime-root <path>` | Show one pack manifest and its managed skills. | No |
 | `sos pack sync <pack> --runtime-root <path>` | Show a pack sync plan. | No |
 | `sos pack sync <pack> --runtime-root <path> --apply` | Apply a valid pack sync plan. | Yes |
+| `sos changes --root <path> --runtime-root <path> --codex-config <path>` | Report new, missing, changed, or unexpectedly enabled skills. | No |
 | `sos status --runtime-root <path>` | Show runtime registry and backup state. | No |
 | `sos backup list --runtime-root <path>` | List backups. | No |
 | `sos backup clean --runtime-root <path> --keep <count>` | Preview backup pruning. | No |

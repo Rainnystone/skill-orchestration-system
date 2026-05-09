@@ -271,8 +271,11 @@ pointer skill 不会塞入原始 `SKILL.md` 全文。它会指向 pack manifest 
 | `sos apply --plan <path>` | 汇总计划内容，做 dry run。 | 否 |
 | `sos apply --plan <path> --apply` | 复制 skills、写 manifest 和 pointer、禁用原入口并创建备份。 | 是 |
 | `sos pack activate <pack> --runtime-root <path>` | 激活技能包，并在符合条件时执行 clean sync。 | 可能 |
+| `sos pack list --runtime-root <path>` | 列出已写入的 runtime packs。 | 否 |
+| `sos pack show <pack> --runtime-root <path>` | 显示一个 pack 的 manifest 和其管理的 skills。 | 否 |
 | `sos pack sync <pack> --runtime-root <path>` | 展示技能包同步计划。 | 否 |
 | `sos pack sync <pack> --runtime-root <path> --apply` | 执行有效的技能包同步计划。 | 是 |
+| `sos changes --root <path> --runtime-root <path> --codex-config <path>` | 报告新增、缺失、变更或意外启用的 skills。 | 否 |
 | `sos status --runtime-root <path>` | 查看 runtime registry 和备份状态。 | 否 |
 | `sos backup list --runtime-root <path>` | 列出备份。 | 否 |
 | `sos backup clean --runtime-root <path> --keep <count>` | 预览备份清理。 | 否 |
