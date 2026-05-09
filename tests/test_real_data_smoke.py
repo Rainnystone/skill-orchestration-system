@@ -80,6 +80,19 @@ def test_readmes_include_new_pack_inspection_commands() -> None:
         assert "sos changes" in text
 
 
+def test_readmes_have_readable_language_switches_and_no_mojibake() -> None:
+    english = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    chinese = (REPO_ROOT / "README_CN.md").read_text(encoding="utf-8")
+
+    assert "[English](README.md) | [中文](README_CN.md)" in english
+    assert "[English](README.md) | [中文](README_CN.md)" in chinese
+    assert "你的 agent skills" in chinese
+
+    for marker in ("涓", "锛", "銆", "€", "乻"):
+        assert marker not in english
+        assert marker not in chinese
+
+
 def test_fixture_roots_propose_builtin_apify_obsidian_and_game_packs() -> None:
     skills = scan_skill_roots((FIXTURE_SKILL_ROOT,))
 

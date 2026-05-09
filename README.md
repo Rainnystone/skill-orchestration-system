@@ -139,6 +139,8 @@ Use the sos skill to inspect my local Codex skills and explain what it finds.
 Use the sos skill to propose skill packs, but do not write anything yet.
 Use the sos skill to create a dry-run plan for organizing my skills.
 Use the sos skill to apply the reviewed plan.
+Use the sos skill to show what is inside my current packs.
+Use the sos skill to check what changed after I installed new skills.
 ```
 
 When the skill activates, Codex reads `.agents/skills/sos/SKILL.md`, runs or
@@ -192,6 +194,35 @@ A pack pointer runs
 `sos pack activate PACK_ID --runtime-root RUNTIME_ROOT --sync=clean-auto` before
 reading the managed vault copy. That is how SOS keeps the active skill layer
 small while still preserving the full skill content in the vault.
+
+### Seeing What Is Inside A Pack
+
+Once packs exist, you do not have to guess what an agent will see. Ask the
+`sos` skill, or run the read-only CLI commands directly:
+
+```bash
+sos pack list --runtime-root RUNTIME_ROOT
+sos pack show PACK_ID --runtime-root RUNTIME_ROOT
+sos pack show PACK_ID --runtime-root RUNTIME_ROOT --skill SKILL_NAME
+```
+
+`pack list` answers "what packs do I have?" `pack show` answers "what skills
+are inside this pack?" If you name a skill, SOS filters the manifest to that
+exact skill name so the agent can read one vault skill instead of browsing the
+whole pack up front.
+
+### After You Install Or Edit Skills
+
+When your local skill library changes, use `changes` before creating a new plan:
+
+```bash
+sos changes --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --codex-config CODEX_CONFIG
+```
+
+This is also read-only. It reports new unmanaged skills, missing or changed
+managed sources, vault drift, missing or stale generated pointers, and managed
+source skills that were unexpectedly re-enabled. It does not apply repairs; it
+only tells you what deserves a new scan, proposal, or reviewed plan.
 
 ## A Safe First Workflow
 
@@ -252,8 +283,11 @@ skill root you chose. The generated entry points are intentionally short:
 - `sos-<pack>`: one pointer skill per pack.
 
 Pointer skills do not embed the full original skill body. They point the agent
-to the pack manifest and the managed vault copy. That keeps the active layer
-small and keeps detailed skill content where it belongs.
+to the pack manifest and the managed vault copy. When the user names a packed
+skill, the pointer matches that name against manifest `skills.name`; otherwise
+it chooses from manifest `skills.name` and `skills.description`, and asks when
+the choice is ambiguous. That keeps the active layer small and keeps detailed
+skill content where it belongs.
 
 ## How It Works
 
@@ -265,6 +299,8 @@ small and keeps detailed skill content where it belongs.
 |   |-- cli.py              # Command-line entry point
 |   |-- scanner.py          # SKILL.md discovery
 |   |-- propose.py          # Pack proposal rules
+|   |-- pack_inspect.py     # Read-only pack list/show helpers
+|   |-- changes.py          # Read-only runtime and skill drift reporting
 |   |-- planner.py          # Reviewable write-plan generation
 |   |-- apply.py            # Plan execution and rollback-aware writes
 |   |-- sync.py             # Pack activation and clean sync behavior
@@ -289,9 +325,16 @@ A typical SOS runtime root looks like this:
 ```
 
 - `vault/` stores managed skill copies.
-- `packs/` stores TOML pack manifests.
+- `packs/` stores TOML pack manifests, including each managed skill's
+  `name`, `description`, source path, vault path, and sync fingerprints.
 - `state/` stores registry state.
 - `backups/` stores config and vault snapshots created before writes.
+
+Pack proposals are deterministic. SOS first looks at Agent Skill head metadata,
+especially `name` and `description`, and prefers clear source/tool families such
+as Apify or Obsidian before functional groups such as Docs, Browser, Deploy, or
+Data. Ambiguous skills are left for human review instead of being packed by a
+hidden classifier.
 
 ## CLI Reference
 
@@ -307,7 +350,7 @@ A typical SOS runtime root looks like this:
 | `sos pack show <pack> --runtime-root <path>` | Show one pack manifest and its managed skills. | No |
 | `sos pack sync <pack> --runtime-root <path>` | Show a pack sync plan. | No |
 | `sos pack sync <pack> --runtime-root <path> --apply` | Apply a valid pack sync plan. | Yes |
-| `sos changes --root <path> --runtime-root <path> --codex-config <path>` | Report new, missing, changed, or unexpectedly enabled skills. | No |
+| `sos changes --root <path> --runtime-root <path> --codex-config <path>` | Report new, missing, changed, stale, or unexpectedly enabled skills and pointers. | No |
 | `sos status --runtime-root <path>` | Show runtime registry and backup state. | No |
 | `sos backup list --runtime-root <path>` | List backups. | No |
 | `sos backup clean --runtime-root <path> --keep <count>` | Preview backup pruning. | No |
