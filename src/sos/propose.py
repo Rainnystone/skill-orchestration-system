@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+import re
 from typing import Collection, Iterable
 
 from sos.scanner import ScannedSkill
@@ -40,12 +41,12 @@ SOURCE_FAMILIES = (
     ),
     (
         "obsidian",
-        ("obsidian", "canvas", "json canvas", "json-canvas"),
+        ("obsidian", "canvas", "json canvas", "json-canvas", "obsidian canvas"),
         "Shared source/tool family signal: Obsidian or Canvas in skill name or description.",
     ),
     (
         "game-design",
-        ("game", "gameplay", "phaser", "three", "webgl", "sprite"),
+        ("browser game", "game design", "game studio", "gameplay", "phaser", "three.js", "threejs", "webgl", "sprite"),
         "Shared source/tool family signal: game design in skill name or description.",
     ),
 )
@@ -58,7 +59,6 @@ FUNCTIONAL_GROUPS = (
             "documents",
             "markdown",
             "docx",
-            "report",
             "writing",
             "publishing",
             "documentation",
@@ -78,7 +78,17 @@ FUNCTIONAL_GROUPS = (
     ),
     (
         "deploy",
-        ("deployment", "deploy", "hosting", "render", "vercel", "docker", "publish"),
+        (
+            "deployment",
+            "deploy",
+            "hosting",
+            "render.com",
+            "render deployment",
+            "render hosting",
+            "vercel",
+            "docker",
+            "publish",
+        ),
         "Shared functional signal: deployment or hosting terms in skill name or description.",
     ),
     (
@@ -95,7 +105,12 @@ def propose_builtin_packs(skills: Iterable[ScannedSkill]) -> tuple[PackProposal,
 
     for pack_id, keywords, reason in SOURCE_FAMILIES:
         exact_names = GAME_STUDIO_FAMILY_NAMES if pack_id == "game-design" else ()
-        matches = _matching_skills(remaining, keywords, exact_names=exact_names)
+        matches = _matching_skills(
+            remaining,
+            pack_id,
+            keywords,
+            exact_names=exact_names,
+        )
         if matches:
             proposals.extend(
                 _proposals(pack_id, tuple(skill.name for skill in matches), reason)
@@ -104,7 +119,7 @@ def propose_builtin_packs(skills: Iterable[ScannedSkill]) -> tuple[PackProposal,
             remaining = [skill for skill in remaining if skill.name not in matched_names]
 
     for pack_id, keywords, reason in FUNCTIONAL_GROUPS:
-        matches = _matching_skills(remaining, keywords)
+        matches = _matching_skills(remaining, pack_id, keywords)
         if matches:
             proposals.extend(
                 _proposals(pack_id, tuple(skill.name for skill in matches), reason)
@@ -221,6 +236,7 @@ def _max_family_depth(pack_id: str, skill_names: tuple[str, ...]) -> int:
 
 def _matching_skills(
     skills: list[ScannedSkill],
+    pack_id: str,
     keywords: tuple[str, ...],
     *,
     exact_names: Collection[str] = (),
@@ -233,7 +249,11 @@ def _matching_skills(
             continue
 
         head_text = _skill_head_text(skill)
-        if any(keyword in head_text for keyword in keywords):
+        normalized_head_text = _normalized_text(head_text)
+        if any(
+            _matches_keyword(pack_id, keyword, normalized_head_text)
+            for keyword in keywords
+        ):
             matches.append(skill)
 
     return tuple(matches)
@@ -241,3 +261,43 @@ def _matching_skills(
 
 def _skill_head_text(skill: ScannedSkill) -> str:
     return f"{skill.name}\n{skill.description}".lower()
+
+
+def _normalized_text(value: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", value.lower()).split())
+
+
+def _matches_keyword(
+    pack_id: str,
+    keyword: str,
+    normalized_head_text: str,
+) -> bool:
+    if pack_id == "obsidian" and keyword == "canvas":
+        return _matches_canvas_signal(normalized_head_text)
+
+    return _contains_term(normalized_head_text, keyword)
+
+
+def _contains_term(normalized_head_text: str, keyword: str) -> bool:
+    normalized_keyword = _normalized_text(keyword)
+    if not normalized_keyword:
+        return False
+
+    pattern = rf"\b{re.escape(normalized_keyword)}\b"
+    return re.search(pattern, normalized_head_text) is not None
+
+
+def _matches_canvas_signal(normalized_head_text: str) -> bool:
+    if _contains_term(normalized_head_text, "json canvas"):
+        return True
+    if _contains_term(normalized_head_text, "obsidian canvas"):
+        return True
+
+    if not _contains_term(normalized_head_text, "canvas"):
+        return False
+
+    if _contains_term(normalized_head_text, "html canvas"):
+        return False
+
+    support_terms = ("obsidian", "vault", "json", "workflow", "workflows")
+    return any(_contains_term(normalized_head_text, term) for term in support_terms)

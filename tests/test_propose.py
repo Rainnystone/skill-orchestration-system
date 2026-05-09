@@ -120,6 +120,33 @@ def test_propose_uses_canvas_description_for_obsidian_family(tmp_path: Path):
     assert proposals[0].skill_names == ("canvas-helper",)
 
 
+def test_propose_does_not_group_ambiguous_head_terms(tmp_path: Path):
+    skills = (
+        ScannedSkill(
+            name="canvas-game-builder",
+            description="Build HTML canvas games.",
+            folder=tmp_path / "canvas-game-builder",
+            skill_md=tmp_path / "canvas-game-builder" / "SKILL.md",
+        ),
+        ScannedSkill(
+            name="three-report-helper",
+            description="Compare three report formats.",
+            folder=tmp_path / "three-report-helper",
+            skill_md=tmp_path / "three-report-helper" / "SKILL.md",
+        ),
+        ScannedSkill(
+            name="image-renderer",
+            description="Render images from prompts.",
+            folder=tmp_path / "image-renderer",
+            skill_md=tmp_path / "image-renderer" / "SKILL.md",
+        ),
+    )
+
+    proposals = propose_builtin_packs(skills)
+
+    assert proposals == ()
+
+
 def test_source_family_takes_priority_over_functional_terms(tmp_path: Path):
     skills = (
         ScannedSkill(
