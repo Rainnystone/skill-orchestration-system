@@ -14,6 +14,6 @@ In repo-local mode, invoke SOS with Python and a source-tree import path instead
 
 ## Installed-CLI Mode
 
-Use installed-CLI mode only when the `sos` executable is already available. This is a convenience path, not the first-run assumption.
+Use installed-CLI mode only when the `sos` executable is already available and no repo-local source checkout is the current target. This is a convenience path, not the first-run assumption.
 
-If both repo-local and installed-CLI are available, prefer installed-CLI for simple commands and repo-local for development work inside the source checkout.
+If both repo-local and installed-CLI are available while working inside the source checkout, prefer repo-local mode so the skill exercises the checked-out code rather than an unrelated global install.

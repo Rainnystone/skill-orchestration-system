@@ -12,7 +12,7 @@ Do not write Codex configuration by hand. Use SOS commands for managed config up
 
 ## Repo-Local Invocation
 
-When working inside the source checkout and no global install exists, invoke SOS through Python with the repository source tree on the import path. Keep command examples specific to the selected workflow rather than pasting a full CLI reference.
+When working inside the source checkout, invoke SOS through Python with the repository source tree on the import path reported by `scripts/sos_doctor.py`. Keep command examples specific to the selected workflow rather than pasting a full CLI reference.
 
 ## README Timing
 

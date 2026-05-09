@@ -83,3 +83,27 @@ def test_public_skill_markdown_avoids_shell_chaining():
     for path in sorted(SKILL_ROOT.rglob("*.md")):
         text = _read(path)
         assert " && " not in text
+
+
+def test_workflows_resolve_invocation_before_commands():
+    text = _read(REFERENCES / "workflows.md")
+    assert "Resolve Invocation First" in text
+    assert "repo-local" in text
+    assert "scripts/sos_doctor.py" in text
+    assert "append the workflow arguments" in text
+
+
+def test_workflows_do_not_require_global_sos_examples():
+    text = _read(REFERENCES / "workflows.md")
+    assert "do not prove that a global `sos` executable exists" in text
+    assert "```text\nsos " not in text
+
+
+def test_activation_requires_safety_model_and_human_approval():
+    text = _read(REFERENCES / "workflows.md")
+    activation = text.split("## Activate A Pack", 1)[1].split("##", 1)[0]
+    assert "safety-model.md" in activation
+    assert "explicit human approval" in activation
+    assert "status" in activation
+    assert "backup list" in activation
+    assert "pack activate" in activation
