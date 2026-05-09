@@ -613,6 +613,7 @@ def _skill_entry_from_metadata(data: Mapping[str, Any]) -> SkillEntry:
         last_source_fingerprint=str(data.get("last_source_fingerprint", "")),
         last_vault_fingerprint=str(data.get("last_vault_fingerprint", "")),
         last_synced_at=str(data.get("last_synced_at", "")),
+        description=str(data.get("description", "")),
     )
 
 

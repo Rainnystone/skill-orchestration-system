@@ -40,6 +40,13 @@ def test_write_operation_is_immutable(tmp_path: Path):
         op.target = tmp_path / "changed"
 
 
+def test_skill_entry_preserves_legacy_positional_origin_argument(tmp_path: Path):
+    skill = SkillEntry("name", tmp_path / "src", tmp_path / "vault", "codex")
+
+    assert skill.origin == "codex"
+    assert skill.description == ""
+
+
 def test_model_sequence_fields_are_isolated_from_external_list_mutation(tmp_path: Path):
     op = WriteOperation(OperationKind.COPY_SKILL, source=tmp_path / "a", target=tmp_path / "b")
     pack_ids = ["apify"]
