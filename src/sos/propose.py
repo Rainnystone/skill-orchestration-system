@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Collection, Iterable
 
 from sos.scanner import ScannedSkill
 
@@ -32,23 +32,87 @@ GAME_STUDIO_FAMILY_NAMES = frozenset(
     )
 )
 
+SOURCE_FAMILIES = (
+    (
+        "apify",
+        ("apify",),
+        "Shared source/tool family signal: Apify in skill name or description.",
+    ),
+    (
+        "obsidian",
+        ("obsidian", "json canvas", "json-canvas"),
+        "Shared source/tool family signal: Obsidian or Canvas in skill name or description.",
+    ),
+    (
+        "game-design",
+        ("game", "gameplay", "phaser", "three", "webgl", "sprite"),
+        "Shared source/tool family signal: game design in skill name or description.",
+    ),
+)
+
+FUNCTIONAL_GROUPS = (
+    (
+        "docs",
+        (
+            "document",
+            "documents",
+            "markdown",
+            "docx",
+            "report",
+            "writing",
+            "publishing",
+            "documentation",
+        ),
+        "Shared functional signal: document or writing terms in skill name or description.",
+    ),
+    (
+        "browser",
+        (
+            "browser",
+            "playwright",
+            "screenshot",
+            "page inspection",
+            "web automation",
+        ),
+        "Shared functional signal: browser automation terms in skill name or description.",
+    ),
+    (
+        "deploy",
+        ("deployment", "deploy", "hosting", "render", "vercel", "docker", "publish"),
+        "Shared functional signal: deployment or hosting terms in skill name or description.",
+    ),
+    (
+        "data",
+        ("csv", "json", "sql", "dataset", "analytics", "extraction", "transform"),
+        "Shared functional signal: data workflow terms in skill name or description.",
+    ),
+)
+
 
 def propose_builtin_packs(skills: Iterable[ScannedSkill]) -> tuple[PackProposal, ...]:
-    skill_names = tuple(sorted(skill.name for skill in skills))
-    proposal_groups = (
-        _proposals("apify", _matching(skill_names, _is_apify), "Apify skill family."),
-        _proposals(
-            "obsidian",
-            _matching(skill_names, _is_obsidian),
-            "Obsidian, Canvas, Bases, and vault workflows.",
-        ),
-        _proposals(
-            "game-design",
-            _matching(skill_names, _is_game_design),
-            "Game Studio browser game design and implementation workflows.",
-        ),
-    )
-    return tuple(proposal for group in proposal_groups for proposal in group)
+    remaining = list(sorted(skills, key=lambda skill: skill.name))
+    proposals: list[PackProposal] = []
+
+    for pack_id, keywords, reason in SOURCE_FAMILIES:
+        exact_names = GAME_STUDIO_FAMILY_NAMES if pack_id == "game-design" else ()
+        matches = _matching_skills(remaining, keywords, exact_names=exact_names)
+        if matches:
+            proposals.extend(
+                _proposals(pack_id, tuple(skill.name for skill in matches), reason)
+            )
+            matched_names = {skill.name for skill in matches}
+            remaining = [skill for skill in remaining if skill.name not in matched_names]
+
+    for pack_id, keywords, reason in FUNCTIONAL_GROUPS:
+        matches = _matching_skills(remaining, keywords)
+        if matches:
+            proposals.extend(
+                _proposals(pack_id, tuple(skill.name for skill in matches), reason)
+            )
+            matched_names = {skill.name for skill in matches}
+            remaining = [skill for skill in remaining if skill.name not in matched_names]
+
+    return tuple(proposals)
 
 
 def _proposals(
@@ -155,17 +219,25 @@ def _max_family_depth(pack_id: str, skill_names: tuple[str, ...]) -> int:
     return max(len(_family_tokens(pack_id, skill_name)) for skill_name in skill_names)
 
 
-def _matching(skill_names: tuple[str, ...], predicate) -> tuple[str, ...]:
-    return tuple(name for name in skill_names if predicate(name))
+def _matching_skills(
+    skills: list[ScannedSkill],
+    keywords: tuple[str, ...],
+    *,
+    exact_names: Collection[str] = (),
+) -> tuple[ScannedSkill, ...]:
+    matches: list[ScannedSkill] = []
+
+    for skill in skills:
+        if skill.name in exact_names:
+            matches.append(skill)
+            continue
+
+        head_text = _skill_head_text(skill)
+        if any(keyword in head_text for keyword in keywords):
+            matches.append(skill)
+
+    return tuple(matches)
 
 
-def _is_apify(name: str) -> bool:
-    return name.startswith("apify-")
-
-
-def _is_obsidian(name: str) -> bool:
-    return name.startswith("obsidian-") or name == "json-canvas"
-
-
-def _is_game_design(name: str) -> bool:
-    return name.startswith("game-") or name in GAME_STUDIO_FAMILY_NAMES
+def _skill_head_text(skill: ScannedSkill) -> str:
+    return f"{skill.name}\n{skill.description}".lower()

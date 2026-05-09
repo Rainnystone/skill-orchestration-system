@@ -26,6 +26,7 @@ REFERENCE_DOCS = (
     REPO_ROOT / "references" / "sync-policy.md",
     REPO_ROOT / "references" / "codex-config-safety.md",
     REPO_ROOT / "references" / "backup-restore.md",
+    REPO_ROOT / "references" / "pack-composition.md",
 )
 
 
@@ -189,6 +190,25 @@ def test_opt_in_real_skill_roots_stay_dry_run_only() -> None:
         )
 
     assert expected <= pack_ids
+
+
+def test_pack_composition_reference_matches_implemented_proposal_scope() -> None:
+    reference = (REPO_ROOT / "references" / "pack-composition.md").read_text(
+        encoding="utf-8"
+    )
+
+    for expected_text in (
+        "`name` and `description`",
+        "Apify",
+        "Obsidian",
+        "Game Design",
+        "Docs",
+        "Browser",
+        "Deploy",
+        "Data",
+        "opaque model output",
+    ):
+        assert expected_text in reference
 
 
 def _disabled_config_paths(codex_config: Path) -> set[str]:
