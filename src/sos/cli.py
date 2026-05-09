@@ -308,6 +308,7 @@ def _handle_changes(args: argparse.Namespace) -> int:
     _print_skill_section("source changed", report.source_changed, "source_path")
     _print_skill_section("vault changed", report.vault_changed, "vault_path")
     _print_path_section("pointer missing", report.pointer_missing)
+    _print_path_section("pointer stale", report.pointer_stale)
     _print_skill_section(
         "managed source unexpectedly enabled",
         report.managed_source_enabled,

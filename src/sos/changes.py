@@ -3,12 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from collections.abc import Iterable
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from sos.codex_config import load_codex_config
 from sos.fingerprint import fingerprint_dir
 from sos.manifest import load_registry
 from sos.models import Registry, SkillEntry
 from sos.paths import RuntimePaths
+from sos.pointer import render_companion_skill, render_pack_pointer
 from sos.scanner import scan_skill_roots
 
 
@@ -19,6 +21,7 @@ class ChangeReport:
     source_changed: tuple[SkillEntry, ...] = ()
     vault_changed: tuple[SkillEntry, ...] = ()
     pointer_missing: tuple[Path, ...] = ()
+    pointer_stale: tuple[Path, ...] = ()
     managed_source_enabled: tuple[SkillEntry, ...] = ()
 
 
@@ -78,6 +81,7 @@ def detect_changes(
             key=lambda path: path.as_posix(),
         )
     )
+    pointer_stale = _detect_stale_pointers(root, runtime_paths, registry, active_pointers)
     managed_source_enabled = _sort_skills(
         skill
         for skill in managed_skills
@@ -90,6 +94,7 @@ def detect_changes(
         source_changed=source_changed,
         vault_changed=vault_changed,
         pointer_missing=pointer_missing,
+        pointer_stale=pointer_stale,
         managed_source_enabled=managed_source_enabled,
     )
 
@@ -144,3 +149,37 @@ def _comparable_path(path: Path) -> Path:
         return path.resolve()
     except OSError:
         return path
+
+
+def _detect_stale_pointers(
+    root: Path,
+    runtime_paths: RuntimePaths,
+    registry: Registry,
+    active_pointers: frozenset[str],
+) -> tuple[Path, ...]:
+    stale_paths: list[Path] = []
+    registry_path = runtime_paths.state / "registry.toml"
+    with TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        for manifest in registry.packs:
+            pointer_name = manifest.pointer_skill
+            actual_path = root / pointer_name / "SKILL.md"
+            if pointer_name not in active_pointers or not actual_path.is_file():
+                continue
+            expected_path = temp_root / pointer_name / "SKILL.md"
+            render_pack_pointer(expected_path, manifest)
+            if actual_path.read_text(encoding="utf-8") != expected_path.read_text(
+                encoding="utf-8"
+            ):
+                stale_paths.append(actual_path)
+
+        companion_path = root / "sos-haruhi" / "SKILL.md"
+        if "sos-haruhi" in active_pointers and companion_path.is_file():
+            expected_companion = temp_root / "sos-haruhi" / "SKILL.md"
+            render_companion_skill(expected_companion, registry_path)
+            if companion_path.read_text(encoding="utf-8") != expected_companion.read_text(
+                encoding="utf-8"
+            ):
+                stale_paths.append(companion_path)
+
+    return tuple(sorted(stale_paths, key=lambda path: path.as_posix()))

@@ -8,6 +8,7 @@ from sos.fingerprint import fingerprint_dir
 from sos.manifest import save_pack_manifest, save_registry
 from sos.models import PackManifest, Registry, SkillEntry
 from sos.paths import RuntimePaths
+from sos.pointer import render_companion_skill
 from sos.cli import main
 from sos.toml_io import read_toml, write_toml
 
@@ -443,6 +444,38 @@ def test_changes_reports_new_unmanaged_skill_without_writing(capsys, tmp_path: P
     assert "new unmanaged skills: 1" in captured.out
     assert f"- {new_skill}" in captured.out
     assert codex_config.read_text(encoding="utf-8") == original_config
+
+
+def test_changes_reports_stale_pointer_without_writing(capsys, tmp_path: Path):
+    root = tmp_path / "skills"
+    runtime_paths, manifest = _write_runtime_pack(tmp_path / ".sos")
+    stale_pointer = root / manifest.pointer_skill / "SKILL.md"
+    stale_pointer.parent.mkdir(parents=True, exist_ok=True)
+    stale_pointer.write_text("# stale pointer\n", encoding="utf-8")
+    render_companion_skill(
+        root / "sos-haruhi" / "SKILL.md",
+        runtime_paths.state / "registry.toml",
+    )
+    codex_config = _write_codex_config(tmp_path)
+    original_stale = stale_pointer.read_text(encoding="utf-8")
+
+    exit_code = main(
+        [
+            "changes",
+            "--root",
+            str(root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--codex-config",
+            str(codex_config),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "pointer stale: 1" in captured.out
+    assert f"- {stale_pointer}" in captured.out
+    assert stale_pointer.read_text(encoding="utf-8") == original_stale
 
 
 def test_changes_reports_source_and_vault_drift(capsys, tmp_path: Path):
