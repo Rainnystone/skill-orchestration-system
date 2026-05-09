@@ -28,6 +28,32 @@ Use propose to generate reviewable pack candidates. This is read-only.
 propose --root SKILLS_ROOT
 ```
 
+## Inspect Packs
+
+Pack inspection is read-only. Use it to inspect pack metadata before reading vault skill bodies.
+
+```text
+pack list --runtime-root RUNTIME_ROOT
+pack show PACK_ID --runtime-root RUNTIME_ROOT
+pack show PACK_ID --runtime-root RUNTIME_ROOT --skill SKILL_NAME
+```
+
+## Detect New Or Changed Skills
+
+Use changes when the user says they installed, removed, updated, or re-enabled skills. This is read-only.
+
+```text
+changes --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --codex-config CODEX_CONFIG
+```
+
+## Select A Skill Inside A Pack
+
+Inspect the manifest first. If the user names a skill, match it exactly against manifest `skills.name`. If exactly one skill matches, state the selected vault skill and why it was selected, then read only that selected vault skill's `SKILL.md`. If the user did not name a skill, choose from manifest `skills.name` and `skills.description`, and ask if the choice is ambiguous.
+
+```text
+pack show PACK_ID --runtime-root RUNTIME_ROOT --skill SKILL_NAME
+```
+
 ## Create A Reviewable Plan
 
 Plan writes only the explicit plan file. Confirm the output path first.

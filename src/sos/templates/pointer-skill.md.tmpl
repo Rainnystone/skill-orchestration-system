@@ -16,8 +16,11 @@ If the SOS CLI is unavailable, say sync preflight was not completed, then contin
 
 Vault read order:
 1. Open the manifest at `{{manifest_path}}`.
-2. Use manifest entries, triggers, and names to choose the matching vault skill from the manifest before following that vault skill's `SKILL.md`.
-3. Read the selected vault skill folder and follow its `SKILL.md`, including any relative scripts, assets, or references from that folder.
+2. If the user names a skill, match it exactly against manifest `skills.name`.
+3. If exactly one skill matches, read only that selected vault skill folder and follow its `SKILL.md`.
+4. If no skill matches or multiple skills fit equally well, show candidate `skills.name` values and ask the user to choose.
+5. If the user did not name a skill, choose from manifest `skills.name` and `skills.description`; do not read every packed skill up front.
+6. State the selected vault skill and why it was selected before doing substantial work.
 
 Do not use original source paths as active instructions.
 Do not copy full original skill bodies into this pointer.

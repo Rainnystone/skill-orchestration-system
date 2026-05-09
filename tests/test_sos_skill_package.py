@@ -141,3 +141,14 @@ def test_activation_requires_safety_model_and_human_approval():
     assert "status" in activation
     assert "backup list" in activation
     assert "pack activate" in activation
+
+
+def test_workflows_include_pack_inspection_changes_and_skill_selection():
+    text = _read(REFERENCES / "workflows.md")
+    assert "Inspect Packs" in text
+    assert "pack list --runtime-root RUNTIME_ROOT" in text
+    assert "pack show PACK_ID --runtime-root RUNTIME_ROOT" in text
+    assert "Detect New Or Changed Skills" in text
+    assert "changes --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --codex-config CODEX_CONFIG" in text
+    assert "Select A Skill Inside A Pack" in text
+    assert "exactly against manifest `skills.name`" in text
