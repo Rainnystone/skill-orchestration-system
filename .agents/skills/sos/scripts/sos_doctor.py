@@ -6,6 +6,7 @@ import os
 import platform
 import shutil
 import sys
+import tomllib
 from pathlib import Path
 from typing import Callable
 
@@ -13,26 +14,33 @@ from typing import Callable
 PROJECT_NAME = "skill-orchestration-system"
 
 
-def _looks_like_sos_pyproject(path: Path) -> bool:
+def _read_project_name(path: Path) -> str | None:
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        with path.open("rb") as handle:
+            data = tomllib.load(handle)
     except OSError:
-        return False
+        return None
+    except tomllib.TOMLDecodeError:
+        return None
 
-    in_project_table = False
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if stripped.startswith("[") and stripped.endswith("]"):
-            in_project_table = stripped == "[project]"
-            continue
-        if not in_project_table or not stripped.startswith("name"):
-            continue
-        key, separator, value = stripped.partition("=")
-        if separator and key.strip() == "name":
-            return value.strip().strip('"').strip("'") == PROJECT_NAME
-    return False
+    project = data.get("project")
+    if not isinstance(project, dict):
+        return None
+
+    name = project.get("name")
+    return name if isinstance(name, str) else None
+
+
+def _looks_like_sos_pyproject(path: Path) -> bool:
+    return _read_project_name(path) == PROJECT_NAME
+
+
+def _build_pythonpath_update(repo_root: Path) -> str:
+    repo_src = str((repo_root / "src").resolve())
+    existing_pythonpath = os.environ.get("PYTHONPATH")
+    if existing_pythonpath:
+        return f"{repo_src}{os.pathsep}{existing_pythonpath}"
+    return repo_src
 
 
 def find_repo_root(cwd: Path | str | None = None) -> Path | None:
@@ -73,7 +81,7 @@ def detect(
             "mode": "repo-local",
             "message": "SOS source checkout detected; use repo-local Python invocation.",
             "command": [sys.executable, "-m", "sos", "--version"],
-            "env_updates": {"PYTHONPATH": str(repo_root / "src")},
+            "env_updates": {"PYTHONPATH": _build_pythonpath_update(repo_root)},
         }
 
     if installed_cli is not None:
@@ -97,8 +105,10 @@ def detect(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cwd", default=os.getcwd())
+    parser.add_argument("--no-path-lookup", action="store_true")
     args = parser.parse_args(argv)
-    print(json.dumps(detect(cwd=args.cwd), sort_keys=True))
+    cli_finder = (lambda _: None) if args.no_path_lookup else shutil.which
+    print(json.dumps(detect(cwd=args.cwd, cli_finder=cli_finder), sort_keys=True))
     return 0
 
 
