@@ -18,4 +18,4 @@ Backups protect managed writes, but they are not a reason to skip review. For re
 
 ## Documentation
 
-README rewrite is deferred. When public README work resumes, ask the human for the README style before editing `README.md` or `README_CN.md`.
+Keep public onboarding docs aligned with the safety model. When install, usage, write-boundary, backup, restore, or activation behavior changes, update both `README.md` and `README_CN.md` in the same change.

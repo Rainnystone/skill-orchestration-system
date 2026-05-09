@@ -68,10 +68,26 @@ def test_readmes_explain_how_to_use_sos_after_installation():
         assert "sos-haruhi" in text
         assert "sos-<pack>" in text
         assert "pack activate" in text
+        assert "pack activate PACK_ID --runtime-root RUNTIME_ROOT --sync=clean-auto" in text
 
     assert "## How To Use SOS" in english
     assert "Codex Skill Path" in english
     assert "CLI Path" in english
+
+    first_run = english.split("### Codex Skill Path", 1)[1].split("### CLI Path", 1)[0]
+    assert "Use sos-haruhi" not in first_run
+
+
+def test_codex_reference_has_current_readme_policy():
+    text = _read(REFERENCES / "codex.md")
+    assert "README rewrite is deferred" not in text
+    assert "Keep `README.md` and `README_CN.md` aligned" in text
+
+
+def test_sos_skill_references_do_not_defer_completed_readme_work():
+    for path in sorted(REFERENCES.glob("*.md")):
+        text = _read(path)
+        assert "README rewrite is deferred" not in text, path
 
 
 def test_claude_code_reference_is_future_only():

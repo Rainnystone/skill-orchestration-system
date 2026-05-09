@@ -121,7 +121,6 @@ Use the sos skill to inspect my local Codex skills and explain what it finds.
 Use the sos skill to propose skill packs, but do not write anything yet.
 Use the sos skill to create a dry-run plan for organizing my skills.
 Use the sos skill to apply the reviewed plan.
-Use sos-haruhi to show SOS status and backups.
 ```
 
 skill 被触发后，Codex 会读取 `.agents/skills/sos/SKILL.md`，运行或检查 `sos_doctor.py`，判断当前应该用 repo-local 模式还是 installed-CLI 模式，缺路径时先问你，然后再调用默认 dry-run-first 的 SOS 命令。
@@ -165,7 +164,7 @@ Use sos-haruhi to show my SOS status.
 Use sos-writing for this documentation task.
 ```
 
-pack pointer 会先运行 `sos pack activate PACK_ID --sync=clean-auto`，再读取受管理 vault 里的 skill 副本。这就是 SOS 保持 active 层很轻，同时把完整 skill 内容留在 vault 里的方式。
+pack pointer 会先运行 `sos pack activate PACK_ID --runtime-root RUNTIME_ROOT --sync=clean-auto`，再读取受管理 vault 里的 skill 副本。这就是 SOS 保持 active 层很轻，同时把完整 skill 内容留在 vault 里的方式。
 
 ## 一个安全的起步流程
 

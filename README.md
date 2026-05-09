@@ -139,7 +139,6 @@ Use the sos skill to inspect my local Codex skills and explain what it finds.
 Use the sos skill to propose skill packs, but do not write anything yet.
 Use the sos skill to create a dry-run plan for organizing my skills.
 Use the sos skill to apply the reviewed plan.
-Use sos-haruhi to show SOS status and backups.
 ```
 
 When the skill activates, Codex reads `.agents/skills/sos/SKILL.md`, runs or
@@ -189,9 +188,10 @@ Use sos-haruhi to show my SOS status.
 Use sos-writing for this documentation task.
 ```
 
-A pack pointer runs `sos pack activate PACK_ID --sync=clean-auto` before reading
-the managed vault copy. That is how SOS keeps the active skill layer small while
-still preserving the full skill content in the vault.
+A pack pointer runs
+`sos pack activate PACK_ID --runtime-root RUNTIME_ROOT --sync=clean-auto` before
+reading the managed vault copy. That is how SOS keeps the active skill layer
+small while still preserving the full skill content in the vault.
 
 ## A Safe First Workflow
 

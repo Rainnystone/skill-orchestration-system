@@ -6,4 +6,4 @@ Keep this reference as a future-only aperture for later design work. Do not add 
 
 If the user asks about Claude Code, explain that this package is currently Codex-first and that Claude Code behavior needs a separate approved implementation packet before it can be advertised or wired into workflows.
 
-README rewrite is deferred. Ask the human for the README style before adding Claude Code claims to public README files.
+Do not add Claude Code support claims to public README files until a separate Claude Code implementation packet has been approved and verified.

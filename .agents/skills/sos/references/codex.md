@@ -14,6 +14,6 @@ Do not write Codex configuration by hand. Use SOS commands for managed config up
 
 When working inside the source checkout, invoke SOS through Python with the repository source tree on the import path reported by `scripts/sos_doctor.py`. Keep command examples specific to the selected workflow rather than pasting a full CLI reference.
 
-## README Timing
+## README Alignment
 
-README rewrite is deferred. Ask the human for the README style before rewriting public README files.
+Keep `README.md` and `README_CN.md` aligned when Codex-facing install, usage, or workflow entry points change. Public README changes should describe both the skill path and the CLI path when the user-facing behavior depends on both.

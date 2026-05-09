@@ -31,12 +31,19 @@ REQUIRED_RESULT_KEYS = {
 }
 
 
-def _write_repo(root: Path) -> None:
+def _write_repo(root: Path, *, runnable: bool = True) -> None:
     (root / "pyproject.toml").write_text(
         '[project]\nname = "skill-orchestration-system"\n',
         encoding="utf-8",
     )
-    (root / "src" / "sos").mkdir(parents=True)
+    package = root / "src" / "sos"
+    package.mkdir(parents=True)
+    if runnable:
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        (package / "__main__.py").write_text(
+            'print("sos 0.1.0")\n',
+            encoding="utf-8",
+        )
 
 
 def _assert_output_contract(result: dict[str, object]) -> None:
@@ -87,7 +94,11 @@ def test_detect_finds_repo_local_mode_from_nested_directory(tmp_path):
 
 
 def test_detect_finds_installed_cli_when_no_repo_local_backend(tmp_path):
-    result = detect(cwd=tmp_path, cli_finder=lambda _: "/usr/local/bin/sos")
+    result = detect(
+        cwd=tmp_path,
+        cli_finder=lambda _: "/usr/local/bin/sos",
+        version_runner=lambda command, env_updates: (True, "sos 0.1.0"),
+    )
 
     _assert_output_contract(result)
     assert result["mode"] == "installed-cli"
@@ -95,6 +106,70 @@ def test_detect_finds_installed_cli_when_no_repo_local_backend(tmp_path):
     assert result["installed_cli"] == "/usr/local/bin/sos"
     assert result["command"] == ["sos", "--version"]
     assert result["env_updates"] == {}
+
+
+def test_detect_stays_advisory_when_repo_local_version_fails(tmp_path):
+    repo = tmp_path / "skill-orchestration-system"
+    nested = repo / "docs"
+    nested.mkdir(parents=True)
+    _write_repo(repo, runnable=False)
+
+    result = detect(cwd=nested, cli_finder=lambda _: None)
+
+    _assert_output_contract(result)
+    assert result["mode"] == "advisory"
+    assert result["repo_root"] == str(repo.resolve())
+    assert result["command"] == []
+    assert result["env_updates"] == {}
+    assert "repo-local" in result["message"]
+    assert "dependencies" in result["message"]
+
+
+def test_detect_falls_back_to_verified_installed_cli_when_repo_local_fails(tmp_path):
+    repo = tmp_path / "skill-orchestration-system"
+    nested = repo / "docs"
+    nested.mkdir(parents=True)
+    _write_repo(repo, runnable=False)
+
+    def runner(command: list[str], env_updates: dict[str, str]) -> tuple[bool, str]:
+        if command[0] == sys.executable:
+            return False, "ModuleNotFoundError: No module named 'tomli_w'"
+        return True, "sos 0.1.0"
+
+    result = detect(
+        cwd=nested,
+        cli_finder=lambda _: "/usr/local/bin/sos",
+        version_runner=runner,
+    )
+
+    _assert_output_contract(result)
+    assert result["mode"] == "installed-cli"
+    assert result["repo_root"] == str(repo.resolve())
+    assert result["installed_cli"] == "/usr/local/bin/sos"
+    assert result["command"] == ["sos", "--version"]
+    assert result["env_updates"] == {}
+
+
+def test_detect_rejects_unverified_installed_cli(tmp_path):
+    checked: list[list[str]] = []
+
+    def runner(command: list[str], env_updates: dict[str, str]) -> tuple[bool, str]:
+        checked.append(command)
+        return False, "unrelated sos command"
+
+    result = detect(
+        cwd=tmp_path,
+        cli_finder=lambda _: "/usr/local/bin/sos",
+        version_runner=runner,
+    )
+
+    _assert_output_contract(result)
+    assert result["mode"] == "advisory"
+    assert result["installed_cli"] == "/usr/local/bin/sos"
+    assert result["command"] == []
+    assert result["env_updates"] == {}
+    assert "verified SOS executable" in result["message"]
+    assert checked == [["/usr/local/bin/sos", "--version"]]
 
 
 def test_cli_prints_json_output_for_repo_local_mode(tmp_path):
