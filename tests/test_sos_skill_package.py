@@ -100,7 +100,7 @@ def test_claude_code_reference_is_future_only():
 
 def test_public_skill_files_do_not_contain_private_local_paths():
     forbidden = (
-        "F:" + "\\",
+        "F" + ":" + "\\",
         "C:" + "\\Users",
         "Users" + "\\Administrator",
         "vibe" + " coding",
