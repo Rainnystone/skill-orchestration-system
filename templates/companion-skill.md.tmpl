@@ -21,4 +21,4 @@ Write boundary:
 SOS write commands require `--apply`. Do not edit Codex config, the SOS vault, manifests, registry, backups, or active pointer skills by hand.
 
 Pack activation:
-Pack pointers run `sos pack activate <pack> --sync=clean-auto` before selecting and reading vault skills. Activation prepares sync and routing; management commands handle planning, apply, backup, and restore.
+Pack pointers run `sos pack activate <pack> --runtime-root {{runtime_root}} --sync=clean-auto` before selecting and reading vault skills. Activation prepares sync and routing; management commands handle planning, apply, backup, and restore.

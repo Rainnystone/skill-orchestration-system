@@ -17,7 +17,12 @@ def render_pack_pointer(target: str | Path, manifest: PackManifest) -> None:
     pointer_skill = _safe_pointer_skill_name(manifest.pointer_skill)
     manifest_path = _manifest_path(manifest)
     vault_root = manifest.vault_root or _DEFAULT_RUNTIME_ROOT / "vault" / manifest.id
-    activation_command = f"sos pack activate {manifest.id} --sync={manifest.sync_policy}"
+    runtime_root = _runtime_root_from_manifest(manifest)
+    activation_command = (
+        f"sos pack activate {manifest.id} "
+        f"--runtime-root {runtime_root} "
+        f"--sync={manifest.sync_policy}"
+    )
     description = _compact_description(manifest)
     text = _render_template(
         "pointer-skill.md.tmpl",
@@ -35,9 +40,13 @@ def render_pack_pointer(target: str | Path, manifest: PackManifest) -> None:
 
 
 def render_companion_skill(target: str | Path, registry_path: str | Path) -> None:
+    runtime_root = _runtime_root_from_registry_path(Path(registry_path))
     text = _render_template(
         "companion-skill.md.tmpl",
-        {"registry_path": str(registry_path)},
+        {
+            "registry_path": str(registry_path),
+            "runtime_root": str(runtime_root),
+        },
     )
     atomic_write_text(_skill_file_path(target, "sos-haruhi"), text)
 
@@ -141,6 +150,12 @@ def _registry_path(manifests: tuple[PackManifest, ...]) -> Path:
     if not manifests:
         return _DEFAULT_RUNTIME_ROOT / "state" / "registry.toml"
     return _runtime_root_from_manifest(manifests[0]) / "state" / "registry.toml"
+
+
+def _runtime_root_from_registry_path(registry_path: Path) -> Path:
+    if registry_path.parent.name == "state":
+        return registry_path.parent.parent
+    return registry_path.parent
 
 
 def _runtime_root_from_manifest(manifest: PackManifest) -> Path:

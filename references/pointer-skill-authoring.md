@@ -29,6 +29,7 @@ Authoring rules:
 - Include the manifest path and vault root so the agent can locate the pack.
 - Treat writes as explicit: `sos apply --apply` executes the audited apply plan, and
   `sos pack sync --apply` writes eligible sync changes. `sos pack activate <pack>
-  --sync clean-auto` can also write the vault copy and manifest when clean source
-  drift is eligible, but it never changes Codex config or deletes source skills.
+  --runtime-root <.sos> --sync clean-auto` can also write the vault copy and
+  manifest when clean source drift is eligible, but it never changes Codex
+  config or deletes source skills.
 - Do not document pointer behavior that is not represented in manifests or tests.

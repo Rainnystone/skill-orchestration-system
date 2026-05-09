@@ -42,7 +42,10 @@ def test_render_pack_pointer_is_short_and_mentions_activation_manifest_and_vault
 
     rendered = target.read_text(encoding="utf-8")
     assert len(rendered.splitlines()) < 80
-    assert "sos pack activate apify --sync=clean-auto" in rendered
+    assert (
+        f"sos pack activate apify --runtime-root {tmp_path / '.sos'} --sync=clean-auto"
+        in rendered
+    )
     assert str(expected_manifest_path) in rendered
     assert "choose the matching vault skill from the manifest" in rendered
 
@@ -58,6 +61,7 @@ def test_render_companion_skill_mentions_management_commands_and_apply_boundary(
     for command in ("scan", "propose", "plan", "apply", "status", "backup", "restore"):
         assert command in rendered
     assert "write commands require `--apply`" in rendered
+    assert f"sos pack activate <pack> --runtime-root {tmp_path / '.sos'}" in rendered
 
 
 def test_render_v1_active_skills_writes_haruhi_apify_obsidian_game_design(tmp_path: Path):

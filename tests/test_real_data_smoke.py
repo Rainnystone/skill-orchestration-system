@@ -141,6 +141,10 @@ def test_fixture_apply_path_disables_originals_and_leaves_pointers_scannable(
         pointer_text = pointer.read_text(encoding="utf-8")
         assert str(runtime_root / "packs" / f"{pack_id}.toml") in pointer_text
         assert str(runtime_root / "vault" / pack_id) in pointer_text
+        assert (
+            f"sos pack activate {pack_id} --runtime-root {runtime_root} --sync=clean-auto"
+            in pointer_text
+        )
         for skill in manifest.skills:
             assert skill.vault_path == runtime_root / "vault" / pack_id / skill.name
             assert (skill.vault_path / "SKILL.md").is_file()
