@@ -247,6 +247,10 @@ def _matching_skills(
             matches.append(skill)
             continue
 
+        if pack_id == "game-design" and skill.name.startswith("game-"):
+            matches.append(skill)
+            continue
+
         head_text = _skill_head_text(skill)
         normalized_head_text = _normalized_text(head_text)
         if any(

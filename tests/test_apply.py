@@ -5,6 +5,7 @@ import pytest
 import sos.apply as apply_module
 import sos.codex_config as codex_config
 from sos.apply import apply_write_plan
+from sos.fingerprint import fingerprint_dir
 from sos.manifest import load_pack_manifest
 from sos.models import OperationKind, WriteOperation, WritePlan
 from sos.paths import RuntimePaths
@@ -114,6 +115,31 @@ def test_apply_preserves_skill_description_in_written_manifest(tmp_path: Path):
 
     assert result.status == "applied"
     assert manifest.skills[0].description == "apify-actor-development test skill."
+
+
+def test_apply_records_initial_fingerprints_in_written_manifest(tmp_path: Path):
+    active_root = tmp_path / "active"
+    source = _write_skill(active_root, "apify-actor-development")
+    runtime_paths = _runtime_paths(tmp_path)
+    codex_config_path = tmp_path / "config.toml"
+    _write_config(codex_config_path, source / "SKILL.md")
+    plan = _single_skill_plan(runtime_paths, active_root, codex_config_path)
+
+    result = apply_write_plan(
+        plan,
+        runtime_paths,
+        codex_config_path,
+        active_root,
+        apply=True,
+    )
+
+    manifest = load_pack_manifest(runtime_paths.packs / "apify.toml")
+    skill = manifest.skills[0]
+
+    assert result.status == "applied"
+    assert skill.last_source_fingerprint == fingerprint_dir(source)
+    assert skill.last_vault_fingerprint == fingerprint_dir(skill.vault_path)
+    assert skill.last_synced_at
 
 
 def test_apply_rolls_back_config_when_config_write_fails(

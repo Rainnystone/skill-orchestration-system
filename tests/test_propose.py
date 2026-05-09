@@ -163,6 +163,22 @@ def test_source_family_takes_priority_over_functional_terms(tmp_path: Path):
     assert proposals[0].skill_names == ("apify-browser-runner",)
 
 
+def test_game_prefix_skills_remain_game_design_source_family(tmp_path: Path):
+    skills = (
+        ScannedSkill(
+            name="game-balance",
+            description="Tune combat encounters.",
+            folder=tmp_path / "game-balance",
+            skill_md=tmp_path / "game-balance" / "SKILL.md",
+        ),
+    )
+
+    proposals = propose_builtin_packs(skills)
+
+    assert tuple(proposal.pack_id for proposal in proposals) == ("game-design",)
+    assert proposals[0].skill_names == ("game-balance",)
+
+
 def test_propose_uses_skill_head_for_conservative_functional_groups(tmp_path: Path):
     skills = (
         ScannedSkill(

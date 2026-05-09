@@ -9,6 +9,7 @@ from pathlib import Path
 from sos.fingerprint import fingerprint_dir
 from sos.manifest import load_pack_manifest, save_pack_manifest
 from sos.models import ActivationResult, OperationKind, PackManifest, SkillEntry, WriteOperation
+from sos.scanner import read_skill_frontmatter
 from sos.skill_fs import replace_skill_folder_atomic, validate_skill_folder
 
 
@@ -322,8 +323,10 @@ def _with_synced_fingerprints(
 
 
 def _synced_skill(skill: SkillEntry, synced_at: str) -> SkillEntry:
+    frontmatter = read_skill_frontmatter(skill.source_path / "SKILL.md")
     return replace(
         skill,
+        description=frontmatter.get("description", ""),
         last_source_fingerprint=fingerprint_dir(skill.source_path),
         last_vault_fingerprint=fingerprint_dir(skill.vault_path),
         last_synced_at=synced_at,

@@ -7,8 +7,8 @@ from tempfile import TemporaryDirectory
 
 from sos.codex_config import load_codex_config
 from sos.fingerprint import fingerprint_dir
-from sos.manifest import load_registry
-from sos.models import Registry, SkillEntry
+from sos.manifest import load_pack_manifest, load_registry
+from sos.models import PackManifest, Registry, SkillEntry
 from sos.paths import RuntimePaths
 from sos.pointer import render_companion_skill, render_pack_pointer
 from sos.scanner import scan_skill_roots
@@ -33,7 +33,8 @@ def detect_changes(
     root = Path(skill_root)
     disabled_paths = _disabled_paths(codex_config_path)
     registry = _load_registry(runtime_paths)
-    managed_skills = tuple(skill for pack in registry.packs for skill in pack.skills)
+    current_manifests = _load_current_manifests(runtime_paths, registry)
+    managed_skills = tuple(skill for pack in current_manifests for skill in pack.skills)
     managed_sources = frozenset(_comparable_path(skill.source_path) for skill in managed_skills)
     active_pointers = frozenset(registry.active_pointers)
     scanned_skills = scan_skill_roots((root,), disabled_paths=disabled_paths)
@@ -58,18 +59,12 @@ def detect_changes(
     source_changed = _sort_skills(
         skill
         for skill in managed_skills
-        if skill.last_source_fingerprint
-        and skill.source_path.exists()
-        and fingerprint_dir(skill.source_path) != skill.last_source_fingerprint
+        if _source_changed(skill)
     )
     vault_changed = _sort_skills(
         skill
         for skill in managed_skills
-        if skill.last_vault_fingerprint
-        and (
-            not skill.vault_path.exists()
-            or fingerprint_dir(skill.vault_path) != skill.last_vault_fingerprint
-        )
+        if _vault_changed(skill)
     )
     pointer_missing = tuple(
         sorted(
@@ -81,7 +76,12 @@ def detect_changes(
             key=lambda path: path.as_posix(),
         )
     )
-    pointer_stale = _detect_stale_pointers(root, runtime_paths, registry, active_pointers)
+    pointer_stale = _detect_stale_pointers(
+        root,
+        runtime_paths,
+        current_manifests,
+        active_pointers,
+    )
     managed_source_enabled = _sort_skills(
         skill
         for skill in managed_skills
@@ -131,6 +131,58 @@ def _load_registry(runtime_paths: RuntimePaths) -> Registry:
     return load_registry(registry_path)
 
 
+def _load_current_manifests(
+    runtime_paths: RuntimePaths,
+    registry: Registry,
+) -> tuple[PackManifest, ...]:
+    manifests: list[PackManifest] = []
+    seen_pack_ids: set[str] = set()
+
+    for registry_manifest in registry.packs:
+        manifest_path = runtime_paths.packs / f"{registry_manifest.id}.toml"
+        if manifest_path.is_file():
+            manifests.append(load_pack_manifest(manifest_path))
+        else:
+            manifests.append(registry_manifest)
+        seen_pack_ids.add(registry_manifest.id)
+
+    if runtime_paths.packs.is_dir():
+        for manifest_path in sorted(runtime_paths.packs.glob("*.toml")):
+            if manifest_path.stem in seen_pack_ids:
+                continue
+            manifests.append(load_pack_manifest(manifest_path))
+
+    return tuple(manifests)
+
+
+def _source_changed(skill: SkillEntry) -> bool:
+    source_fingerprint = _existing_fingerprint(skill.source_path)
+    if source_fingerprint is None:
+        return False
+    if skill.last_source_fingerprint:
+        return source_fingerprint != skill.last_source_fingerprint
+
+    vault_fingerprint = _existing_fingerprint(skill.vault_path)
+    return vault_fingerprint is not None and source_fingerprint != vault_fingerprint
+
+
+def _vault_changed(skill: SkillEntry) -> bool:
+    vault_fingerprint = _existing_fingerprint(skill.vault_path)
+    if vault_fingerprint is None:
+        return True
+    if skill.last_vault_fingerprint:
+        return vault_fingerprint != skill.last_vault_fingerprint
+
+    source_fingerprint = _existing_fingerprint(skill.source_path)
+    return source_fingerprint is not None and vault_fingerprint != source_fingerprint
+
+
+def _existing_fingerprint(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    return fingerprint_dir(path)
+
+
 def _sort_skills(skills: Iterable[SkillEntry]) -> tuple[SkillEntry, ...]:
     return tuple(
         sorted(
@@ -154,14 +206,14 @@ def _comparable_path(path: Path) -> Path:
 def _detect_stale_pointers(
     root: Path,
     runtime_paths: RuntimePaths,
-    registry: Registry,
+    manifests: tuple[PackManifest, ...],
     active_pointers: frozenset[str],
 ) -> tuple[Path, ...]:
     stale_paths: list[Path] = []
     registry_path = runtime_paths.state / "registry.toml"
     with TemporaryDirectory() as temp_dir:
         temp_root = Path(temp_dir)
-        for manifest in registry.packs:
+        for manifest in manifests:
             pointer_name = manifest.pointer_skill
             actual_path = root / pointer_name / "SKILL.md"
             if pointer_name not in active_pointers or not actual_path.is_file():
