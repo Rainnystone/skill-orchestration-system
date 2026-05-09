@@ -51,23 +51,18 @@ def test_sos_skill_uses_progressive_disclosure_references():
     assert "Do not paste the full CLI reference" in text
 
 
-def test_sos_skill_defers_readme_rewrite():
-    text = "\n".join(_read(path) for path in SKILL_ROOT.rglob("*.md"))
+def test_sos_skill_defers_readme_rewrite_in_skill_md():
+    text = _read(SKILL_MD)
     assert "README rewrite is deferred" in text
-    assert "README_CN.md" in text
-    assert "ask the human for the README style" in text
+    assert "ask the human for the README style before rewriting `README.md` or `README_CN.md`" in text
 
 
 def test_claude_code_reference_is_future_only():
     text = _read(REFERENCES / "claude-code-future.md")
     assert "not implemented in this phase" in text
-    assert "Do not write Claude Code settings" in text
+    assert "settings, commands, or installer" in text.lower()
     assert "Do not claim Claude Code support is complete" in text
-
-
-def test_claude_code_future_reference_explicitly_blocks_installer():
-    text = _read(REFERENCES / "claude-code-future.md")
-    assert "Do not add a Claude Code installer." in text
+    assert "separate approved implementation packet" in text
 
 
 def test_public_skill_files_do_not_contain_private_local_paths():
