@@ -324,6 +324,73 @@ def test_pack_sync_with_apply_updates_vault_and_manifest(capsys, tmp_path: Path)
     assert (vault / "SKILL.md").read_text(encoding="utf-8") == "# Updated source\n"
 
 
+def test_pack_list_reports_runtime_packs_without_writing(capsys, tmp_path: Path):
+    runtime_paths, _ = _write_runtime_pack(tmp_path / ".sos")
+    registry_path = runtime_paths.state / "registry.toml"
+    original_registry = registry_path.read_text(encoding="utf-8")
+
+    exit_code = main(["pack", "list", "--runtime-root", str(runtime_paths.root)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "packs: 1" in captured.out
+    assert "- apify: Apify" in captured.out
+    assert "pointer: sos-apify" in captured.out
+    assert "skills: 1" in captured.out
+    assert "sync_policy: clean-auto" in captured.out
+    assert registry_path.read_text(encoding="utf-8") == original_registry
+
+
+def test_pack_show_reports_manifest_vault_and_skill_descriptions(capsys, tmp_path: Path):
+    runtime_paths, manifest = _write_runtime_pack(tmp_path / ".sos")
+
+    exit_code = main(["pack", "show", "apify", "--runtime-root", str(runtime_paths.root)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert f"manifest: {runtime_paths.packs / 'apify.toml'}" in captured.out
+    assert f"vault_root: {runtime_paths.vault / 'apify'}" in captured.out
+    assert "pointer: sos-apify" in captured.out
+    assert "apify-actor-development" in captured.out
+    assert "Develop and debug Apify Actors." in captured.out
+    assert f"source: {manifest.skills[0].source_path}" in captured.out
+    assert f"vault: {manifest.skills[0].vault_path}" in captured.out
+
+
+def test_pack_show_skill_filters_exact_match_and_rejects_unknown(capsys, tmp_path: Path):
+    runtime_paths, manifest = _write_runtime_pack(tmp_path / ".sos")
+
+    exit_code = main(
+        [
+            "pack",
+            "show",
+            "apify",
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--skill",
+            manifest.skills[0].name,
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "skills: 1" in captured.out
+    assert manifest.skills[0].name in captured.out
+
+    with pytest.raises(ValueError, match="unknown skill.*missing-skill"):
+        main(
+            [
+                "pack",
+                "show",
+                "apify",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--skill",
+                "missing-skill",
+            ]
+        )
+
+
 def test_status_reports_runtime_registry_and_backups(capsys, tmp_path: Path):
     runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
     save_registry(
@@ -630,6 +697,44 @@ def _write_sync_manifest(runtime_root: Path, pack_id: str) -> tuple[Path, Path]:
     )
     save_pack_manifest(runtime_paths.packs / f"{pack_id}.toml", manifest)
     return source, vault
+
+
+def _write_runtime_pack(
+    runtime_root: Path,
+    pack_id: str = "apify",
+    skill_name: str = "apify-actor-development",
+    skill_description: str = "Develop and debug Apify Actors.",
+) -> tuple[RuntimePaths, PackManifest]:
+    runtime_paths = RuntimePaths.from_root(runtime_root)
+    source = _write_skill(runtime_root / "sources", skill_name, "# Original\n")
+    vault = _write_skill(runtime_paths.vault / pack_id, skill_name, "# Original\n")
+    manifest = PackManifest(
+        id=pack_id,
+        display_name=pack_id.title(),
+        description="Shared source/tool family signal: Apify.",
+        pointer_skill=f"sos-{pack_id}",
+        aliases=(pack_id,),
+        sync_policy="clean-auto",
+        vault_root=runtime_paths.vault / pack_id,
+        skills=(
+            SkillEntry(
+                name=skill_name,
+                description=skill_description,
+                source_path=source,
+                vault_path=vault,
+                origin="codex",
+            ),
+        ),
+    )
+    save_pack_manifest(runtime_paths.packs / f"{pack_id}.toml", manifest)
+    save_registry(
+        runtime_paths.state / "registry.toml",
+        Registry(
+            packs=(manifest,),
+            active_pointers=("sos-haruhi", f"sos-{pack_id}"),
+        ),
+    )
+    return runtime_paths, manifest
 
 
 def _write_config_and_vault(tmp_path: Path) -> tuple[Path, Path]:

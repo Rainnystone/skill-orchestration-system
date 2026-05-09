@@ -11,6 +11,7 @@ from sos.backups import list_backups, prune_backups, restore_backup
 from sos.codex_config import load_codex_config
 from sos.manifest import load_registry
 from sos.models import OperationKind, WriteOperation, WritePlan
+from sos.pack_inspect import filter_pack_skill, list_pack_manifests, load_runtime_pack
 from sos.paths import RuntimePaths
 from sos.planner import (
     build_pack_apply_plan,
@@ -82,6 +83,16 @@ def _build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--runtime-root", required=True)
     sync.add_argument("--apply", action="store_true")
     sync.set_defaults(handler=_handle_pack_sync)
+
+    pack_list = pack_subcommands.add_parser("list", help="list runtime packs")
+    pack_list.add_argument("--runtime-root", required=True)
+    pack_list.set_defaults(handler=_handle_pack_list)
+
+    show = pack_subcommands.add_parser("show", help="show runtime pack details")
+    show.add_argument("pack")
+    show.add_argument("--runtime-root", required=True)
+    show.add_argument("--skill")
+    show.set_defaults(handler=_handle_pack_show)
 
     status = subcommands.add_parser("status", help="summarize runtime status")
     status.add_argument("--runtime-root", required=True)
@@ -211,6 +222,50 @@ def _handle_pack_sync(args: argparse.Namespace) -> int:
     for message in result.messages:
         print(f"- {message}")
     _print_operations(result.operations)
+    return 0
+
+
+def _handle_pack_list(args: argparse.Namespace) -> int:
+    runtime_paths = RuntimePaths.from_root(args.runtime_root)
+    manifests = list_pack_manifests(runtime_paths)
+    print(f"pack root: {runtime_paths.packs}")
+    print(f"packs: {len(manifests)}")
+    for manifest in manifests:
+        print(f"- {manifest.id}: {manifest.display_name}")
+        print(f"  pointer: {manifest.pointer_skill}")
+        print(f"  skills: {len(manifest.skills)}")
+        print(f"  sync_policy: {manifest.sync_policy}")
+        if manifest.description:
+            print(f"  description: {manifest.description}")
+    return 0
+
+
+def _handle_pack_show(args: argparse.Namespace) -> int:
+    runtime_paths = RuntimePaths.from_root(args.runtime_root)
+    manifest = load_runtime_pack(runtime_paths, args.pack)
+    if args.skill:
+        manifest = filter_pack_skill(manifest, args.skill)
+    print(f"pack: {manifest.id}")
+    print(f"display_name: {manifest.display_name}")
+    print(f"manifest: {runtime_paths.packs / f'{manifest.id}.toml'}")
+    print(f"vault_root: {manifest.vault_root or ''}")
+    print(f"pointer: {manifest.pointer_skill}")
+    print(f"aliases: {', '.join(manifest.aliases)}")
+    print(f"sync_policy: {manifest.sync_policy}")
+    if manifest.description:
+        print(f"description: {manifest.description}")
+    print(f"skills: {len(manifest.skills)}")
+    for skill in manifest.skills:
+        print(f"- {skill.name}")
+        if skill.description:
+            print(f"  description: {skill.description}")
+        print(f"  source: {skill.source_path}")
+        print(f"  vault: {skill.vault_path}")
+        print(f"  origin: {skill.origin}")
+        if skill.last_source_fingerprint:
+            print(f"  last_source_fingerprint: {skill.last_source_fingerprint}")
+        if skill.last_vault_fingerprint:
+            print(f"  last_vault_fingerprint: {skill.last_vault_fingerprint}")
     return 0
 
 
