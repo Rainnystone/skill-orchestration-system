@@ -38,10 +38,15 @@ def _write_repo(root: Path, *, runnable: bool = True) -> None:
     )
     package = root / "src" / "sos"
     package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
     if runnable:
-        (package / "__init__.py").write_text("", encoding="utf-8")
         (package / "__main__.py").write_text(
             'print("sos 0.1.0")\n',
+            encoding="utf-8",
+        )
+    else:
+        (package / "__main__.py").write_text(
+            "raise ModuleNotFoundError(\"No module named 'tomli_w'\")\n",
             encoding="utf-8",
         )
 
