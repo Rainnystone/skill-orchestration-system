@@ -106,6 +106,67 @@ python -m sos --version
 sos --version
 ```
 
+## 实际怎么用 SOS
+
+SOS 有两种用法。
+
+### Codex skill 路线
+
+这是推荐的第一次使用方式。把这个仓库放在 Codex 能看到的 workspace 里，然后直接让 Codex 使用仓库自带的 `sos` skill。你不需要先记住一整串 CLI 命令。
+
+可以这样说：
+
+```text
+Use the sos skill to inspect my local Codex skills and explain what it finds.
+Use the sos skill to propose skill packs, but do not write anything yet.
+Use the sos skill to create a dry-run plan for organizing my skills.
+Use the sos skill to apply the reviewed plan.
+Use sos-haruhi to show SOS status and backups.
+```
+
+skill 被触发后，Codex 会读取 `.agents/skills/sos/SKILL.md`，运行或检查 `sos_doctor.py`，判断当前应该用 repo-local 模式还是 installed-CLI 模式，缺路径时先问你，然后再调用默认 dry-run-first 的 SOS 命令。
+
+### CLI 路线
+
+CLI 是 skill 在需要确定性文件操作时调用的后端。如果你已经安装了 SOS，命令形状是：
+
+```bash
+sos scan --root SKILLS_ROOT --codex-config CODEX_CONFIG
+```
+
+如果你不想全局安装，就从源码 checkout 里用同一套后端：
+
+**macOS / Linux:**
+
+```bash
+PYTHONPATH=src python -m sos scan --root SKILLS_ROOT --codex-config CODEX_CONFIG
+```
+
+**Windows PowerShell:**
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m sos scan --root SKILLS_ROOT --codex-config CODEX_CONFIG
+```
+
+所以，原来的 `sos ...` 这条线还在。`python -m sos ...` 只是 no-global-install 场景下从仓库源码运行同一个后端的方式。
+
+### Apply 计划之后
+
+当你确认并 apply 一个计划后，SOS 会把 active pointer skills 写入你选择的 skills root：
+
+- `sos-haruhi`：管理 SOS 状态、备份、恢复和 pack 操作；
+- `sos-<pack>`：指向某个生成出来的技能包，比如 pack id 是 `writing` 时会有 `sos-writing`。
+
+之后你就像使用普通 Codex skills 一样使用它们：
+
+```text
+Use sos-haruhi to show my SOS status.
+Use sos-writing for this documentation task.
+```
+
+pack pointer 会先运行 `sos pack activate PACK_ID --sync=clean-auto`，再读取受管理 vault 里的 skill 副本。这就是 SOS 保持 active 层很轻，同时把完整 skill 内容留在 vault 里的方式。
+
 ## 一个安全的起步流程
 
 下面的命令使用大写占位符。请替换成你自己的真实路径：

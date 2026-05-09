@@ -122,6 +122,77 @@ After installation, the console script is also available:
 sos --version
 ```
 
+## How To Use SOS
+
+There are two ways to use SOS.
+
+### Codex Skill Path
+
+This is the intended first-run path. Keep this repository available in a Codex
+workspace, then ask Codex to use the bundled `sos` skill. You do not need to
+memorize the command sequence.
+
+Useful prompts:
+
+```text
+Use the sos skill to inspect my local Codex skills and explain what it finds.
+Use the sos skill to propose skill packs, but do not write anything yet.
+Use the sos skill to create a dry-run plan for organizing my skills.
+Use the sos skill to apply the reviewed plan.
+Use sos-haruhi to show SOS status and backups.
+```
+
+When the skill activates, Codex reads `.agents/skills/sos/SKILL.md`, runs or
+inspects `sos_doctor.py`, chooses repo-local mode or installed-CLI mode, asks
+for missing paths, and then uses dry-run-first SOS commands.
+
+### CLI Path
+
+The CLI is what the skill calls when it needs deterministic file work. If SOS is
+installed, the command shape is:
+
+```bash
+sos scan --root SKILLS_ROOT --codex-config CODEX_CONFIG
+```
+
+Without a global install, use the same command through the source checkout:
+
+**macOS / Linux:**
+
+```bash
+PYTHONPATH=src python -m sos scan --root SKILLS_ROOT --codex-config CODEX_CONFIG
+```
+
+**Windows PowerShell:**
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m sos scan --root SKILLS_ROOT --codex-config CODEX_CONFIG
+```
+
+So yes, the old shape is still there: the product command family is `sos ...`.
+`python -m sos ...` is just the no-global-install way to run that same backend
+from the repo.
+
+### After You Apply A Plan
+
+SOS writes active pointer skills into the skills root you selected:
+
+- `sos-haruhi` manages SOS status, backups, restores, and pack operations;
+- `sos-<pack>` points to one generated skill pack, for example `sos-writing` if
+  the pack id is `writing`.
+
+Then you use those generated skills like normal Codex skills:
+
+```text
+Use sos-haruhi to show my SOS status.
+Use sos-writing for this documentation task.
+```
+
+A pack pointer runs `sos pack activate PACK_ID --sync=clean-auto` before reading
+the managed vault copy. That is how SOS keeps the active skill layer small while
+still preserving the full skill content in the vault.
+
 ## A Safe First Workflow
 
 The exact paths depend on your machine. In the examples below, replace:

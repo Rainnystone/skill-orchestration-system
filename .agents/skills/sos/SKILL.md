@@ -22,4 +22,4 @@ Progressive disclosure:
 
 Do not load every reference up front. Do not paste the full CLI reference unless the user asks for command details or the selected workflow needs exact commands.
 
-README rewrite is deferred: after the broader construction work is complete, ask the human for the README style before rewriting `README.md` or `README_CN.md`.
+Keep `README.md` and `README_CN.md` aligned when user-facing install, usage, or workflow entry points change.

@@ -51,10 +51,27 @@ def test_sos_skill_uses_progressive_disclosure_references():
     assert "Do not paste the full CLI reference" in text
 
 
-def test_sos_skill_defers_readme_rewrite_in_skill_md():
+def test_sos_skill_does_not_keep_obsolete_readme_rewrite_deferral():
     text = _read(SKILL_MD)
-    assert "README rewrite is deferred" in text
-    assert "ask the human for the README style before rewriting `README.md` or `README_CN.md`" in text
+    assert "README rewrite is deferred" not in text
+    assert "ask the human for the README style" not in text
+
+
+def test_readmes_explain_how_to_use_sos_after_installation():
+    english = _read(REPO_ROOT / "README.md")
+    chinese = _read(REPO_ROOT / "README_CN.md")
+
+    for text in (english, chinese):
+        assert "Use the sos skill" in text
+        assert "sos_doctor.py" in text
+        assert "python -m sos" in text
+        assert "sos-haruhi" in text
+        assert "sos-<pack>" in text
+        assert "pack activate" in text
+
+    assert "## How To Use SOS" in english
+    assert "Codex Skill Path" in english
+    assert "CLI Path" in english
 
 
 def test_claude_code_reference_is_future_only():
