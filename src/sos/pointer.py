@@ -51,6 +51,32 @@ def render_companion_skill(target: str | Path, registry_path: str | Path) -> Non
     atomic_write_text(_skill_file_path(target, "sos-haruhi"), text)
 
 
+def render_nagato_skill(
+    target: str | Path,
+    *,
+    runtime_root: str | Path,
+    workspace_root: str | Path,
+) -> None:
+    text = _render_template(
+        "nagato-skill.md.tmpl",
+        {
+            "runtime_root": str(runtime_root),
+            "workspace_root": str(workspace_root),
+        },
+    )
+    atomic_write_text(_skill_file_path(target, "sos-nagato"), text)
+
+
+def render_asahina_skill(target: str | Path, *, runtime_root: str | Path) -> None:
+    text = _render_template(
+        "asahina-skill.md.tmpl",
+        {
+            "runtime_root": str(runtime_root),
+        },
+    )
+    atomic_write_text(_skill_file_path(target, "sos-asahina"), text)
+
+
 def render_v1_active_skills(
     active_root: str | Path,
     registry: Registry,
