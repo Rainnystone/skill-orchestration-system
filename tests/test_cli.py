@@ -10,6 +10,7 @@ from sos.models import PackManifest, Registry, SkillEntry
 from sos.paths import RuntimePaths
 from sos.pointer import render_companion_skill
 from sos.cli import main
+from sos.recommendation_store import learned_reference_path, selection_events_path
 from sos.toml_io import read_toml, write_toml
 
 
@@ -331,6 +332,181 @@ def test_pack_sync_with_apply_updates_vault_and_manifest(capsys, tmp_path: Path)
     assert exit_code == 0
     assert "synced" in captured.out
     assert (vault / "SKILL.md").read_text(encoding="utf-8") == "# Updated source\n"
+
+
+def test_recommend_context_reports_recommendations_without_writing(
+    capsys,
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "README.md").write_text("# Docs workspace\n", encoding="utf-8")
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+
+    exit_code = main(
+        [
+            "recommend",
+            "context",
+            "--workspace-root",
+            str(workspace_root),
+            "--runtime-root",
+            str(runtime_paths.root),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "workspace_kinds: docs" in captured.out
+    assert "runtime_packs: 1" in captured.out
+    assert "- docs: documents" in captured.out
+    assert not learned_reference_path(runtime_paths).exists()
+
+
+def test_recommend_activation_plan_and_activate_apply(capsys, tmp_path: Path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "README.md").write_text("# Docs workspace\n", encoding="utf-8")
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    plan_path = tmp_path / "workspace-activation-plan.toml"
+
+    plan_exit = main(
+        [
+            "recommend",
+            "activation-plan",
+            "--workspace-root",
+            str(workspace_root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--packs",
+            "docs",
+            "--out",
+            str(plan_path),
+        ]
+    )
+    plan_output = capsys.readouterr().out
+
+    activate_exit = main(
+        [
+            "recommend",
+            "activate",
+            "--plan",
+            str(plan_path),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--apply",
+        ]
+    )
+    activate_output = capsys.readouterr().out
+
+    workspace_skills = workspace_root / ".agents" / "skills"
+    assert plan_exit == 0
+    assert "workspace activation plan" in plan_output
+    assert activate_exit == 0
+    assert "apply status: applied" in activate_output
+    assert (workspace_skills / "sos-nagato" / "SKILL.md").is_file()
+    assert (workspace_skills / "sos-asahina" / "SKILL.md").is_file()
+    assert (workspace_skills / "sos-docs" / "SKILL.md").is_file()
+
+
+def test_recommend_record_selection_and_learn(capsys, tmp_path: Path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+
+    for _ in range(10):
+        exit_code = main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                "docs workflow",
+                "--scenario-tags",
+                "docs,docx",
+                "--packs",
+                "docs",
+                "--skills",
+                "documents",
+                "--manifest-fingerprint",
+                "sha256:docs",
+            ]
+        )
+        assert exit_code == 0
+    capsys.readouterr()
+
+    learn_exit = main(
+        [
+            "recommend",
+            "learn",
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--apply",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert learn_exit == 0
+    learned_path = learned_reference_path(runtime_paths)
+    assert learned_path.exists()
+    assert "Evidence: 10 accepted selections" in learned_path.read_text(encoding="utf-8")
+    assert f"learned reference: applied {learned_path}" in captured.out
+
+
+def test_recommend_learn_preview_does_not_write_reference(capsys, tmp_path: Path):
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    selection_events_path(runtime_paths).parent.mkdir(parents=True, exist_ok=True)
+    for index in range(10):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(tmp_path / "workspace"),
+                "--scenario-label",
+                "docs workflow",
+                "--scenario-tags",
+                "docs",
+                "--packs",
+                "docs",
+                "--skills",
+                "documents",
+                "--manifest-fingerprint",
+                f"sha256:{index}",
+            ]
+        )
+    capsys.readouterr()
+
+    exit_code = main(["recommend", "learn", "--runtime-root", str(runtime_paths.root)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "learned reference preview:" in captured.out
+    assert not learned_reference_path(runtime_paths).exists()
 
 
 def test_pack_list_reports_runtime_packs_without_writing(capsys, tmp_path: Path):

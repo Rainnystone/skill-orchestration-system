@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -21,9 +22,23 @@ from sos.planner import (
     summarize_write_plan,
 )
 from sos.propose import propose_builtin_packs
+from sos.recommendation_engine import build_recommendation_context, recommend_packs
+from sos.recommendation_store import (
+    SelectionEvent,
+    append_selection_event,
+    build_learned_reference,
+    learned_reference_path,
+    load_selection_events,
+    workspace_id_for_path,
+    write_learned_reference,
+)
 from sos.scanner import ScannedSkill, scan_skill_roots
 from sos.sync import activate_pack, apply_pack_sync, plan_pack_sync
 from sos.toml_io import read_toml, write_toml
+from sos.workspace_activation import (
+    apply_workspace_activation_plan,
+    build_workspace_activation_plan,
+)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -123,6 +138,61 @@ def _build_parser() -> argparse.ArgumentParser:
     restore.add_argument("--runtime-root", required=True)
     restore.add_argument("--apply", action="store_true")
     restore.set_defaults(handler=_handle_restore)
+
+    recommend = subcommands.add_parser("recommend", help="workspace recommendation workflow")
+    recommend_subcommands = recommend.add_subparsers(
+        dest="recommend_command",
+        required=True,
+    )
+
+    recommend_context = recommend_subcommands.add_parser(
+        "context",
+        help="inspect workspace recommendation context",
+    )
+    recommend_context.add_argument("--workspace-root", required=True)
+    recommend_context.add_argument("--runtime-root", required=True)
+    recommend_context.add_argument("--intent", default="")
+    recommend_context.set_defaults(handler=_handle_recommend_context)
+
+    recommend_activation_plan = recommend_subcommands.add_parser(
+        "activation-plan",
+        help="write a workspace activation plan",
+    )
+    recommend_activation_plan.add_argument("--workspace-root", required=True)
+    recommend_activation_plan.add_argument("--runtime-root", required=True)
+    recommend_activation_plan.add_argument("--packs", required=True)
+    recommend_activation_plan.add_argument("--out", required=True)
+    recommend_activation_plan.set_defaults(handler=_handle_recommend_activation_plan)
+
+    recommend_activate = recommend_subcommands.add_parser(
+        "activate",
+        help="summarize or apply a workspace activation plan",
+    )
+    recommend_activate.add_argument("--plan", required=True)
+    recommend_activate.add_argument("--runtime-root", required=True)
+    recommend_activate.add_argument("--apply", action="store_true")
+    recommend_activate.set_defaults(handler=_handle_recommend_activate)
+
+    recommend_record_selection = recommend_subcommands.add_parser(
+        "record-selection",
+        help="record an accepted workspace recommendation selection",
+    )
+    recommend_record_selection.add_argument("--runtime-root", required=True)
+    recommend_record_selection.add_argument("--workspace-root", required=True)
+    recommend_record_selection.add_argument("--scenario-label", required=True)
+    recommend_record_selection.add_argument("--scenario-tags", required=True)
+    recommend_record_selection.add_argument("--packs", required=True)
+    recommend_record_selection.add_argument("--skills", required=True)
+    recommend_record_selection.add_argument("--manifest-fingerprint", required=True)
+    recommend_record_selection.set_defaults(handler=_handle_recommend_record_selection)
+
+    recommend_learn = recommend_subcommands.add_parser(
+        "learn",
+        help="build or apply the learned recommendation reference",
+    )
+    recommend_learn.add_argument("--runtime-root", required=True)
+    recommend_learn.add_argument("--apply", action="store_true")
+    recommend_learn.set_defaults(handler=_handle_recommend_learn)
 
     return parser
 
@@ -371,6 +441,101 @@ def _handle_backup_clean(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_recommend_context(args: argparse.Namespace) -> int:
+    runtime_paths = RuntimePaths.from_root(args.runtime_root)
+    context = build_recommendation_context(
+        runtime_paths,
+        args.workspace_root,
+        intent=args.intent,
+    )
+    recommendations = recommend_packs(context)
+    learned_path = learned_reference_path(runtime_paths)
+    workspace_kinds = ", ".join(context.workspace_signal.kinds) or "none"
+    print(f"workspace_root: {context.workspace_root}")
+    print(f"workspace_kinds: {workspace_kinds}")
+    print(f"runtime_packs: {len(context.pack_manifests)}")
+    print(
+        "learned_reference: "
+        + ("present" if learned_path.is_file() else "missing")
+    )
+    print(f"learned_reference_path: {learned_path}")
+    print(f"selection_events: {len(context.selection_events)}")
+    print(f"recommendations: {len(recommendations)}")
+    for recommendation in recommendations:
+        print(f"- {recommendation.pack_id}: {', '.join(recommendation.skill_names)}")
+        print(f"  reason: {recommendation.reason}")
+    return 0
+
+
+def _handle_recommend_activation_plan(args: argparse.Namespace) -> int:
+    runtime_paths = RuntimePaths.from_root(args.runtime_root)
+    out = Path(args.out)
+    plan = build_workspace_activation_plan(
+        runtime_paths,
+        args.workspace_root,
+        _csv_tuple(args.packs),
+    )
+    serialize_write_plan(plan, out)
+    print(f"workspace activation plan: {out}")
+    print(summarize_write_plan(plan))
+    return 0
+
+
+def _handle_recommend_activate(args: argparse.Namespace) -> int:
+    plan = load_write_plan(Path(args.plan))
+    runtime_paths = RuntimePaths.from_root(args.runtime_root)
+    result = apply_workspace_activation_plan(
+        plan,
+        runtime_paths,
+        apply=bool(args.apply),
+    )
+    if not args.apply:
+        print("dry-run workspace activation; no external files written")
+        print(summarize_write_plan(plan))
+        return 0
+    print(f"apply status: {result.status}")
+    if result.message:
+        print(f"message: {result.message}")
+    return 0
+
+
+def _handle_recommend_record_selection(args: argparse.Namespace) -> int:
+    runtime_paths = RuntimePaths.from_root(args.runtime_root)
+    event = SelectionEvent(
+        schema_version=1,
+        created_at=_utc_now_isoformat(),
+        workspace_id=workspace_id_for_path(args.workspace_root),
+        scenario_label=args.scenario_label,
+        scenario_tags=_csv_tuple(args.scenario_tags),
+        selected_pack_ids=_csv_tuple(args.packs),
+        selected_skill_names=_csv_tuple(args.skills),
+        manifest_fingerprint=args.manifest_fingerprint,
+        selection_source="user_accepted",
+        outcome="activated",
+    )
+    path = append_selection_event(runtime_paths, event)
+    print(f"selection event: {path}")
+    print(
+        "recorded selection: "
+        f"{event.scenario_label}; packs={', '.join(event.selected_pack_ids)}; "
+        f"skills={', '.join(event.selected_skill_names)}"
+    )
+    return 0
+
+
+def _handle_recommend_learn(args: argparse.Namespace) -> int:
+    runtime_paths = RuntimePaths.from_root(args.runtime_root)
+    reference = build_learned_reference(load_selection_events(runtime_paths))
+    path = write_learned_reference(runtime_paths, reference, apply=bool(args.apply))
+    if not args.apply:
+        print("learned reference preview:")
+        print(reference.rstrip())
+        print(f"path: {path}")
+        return 0
+    print(f"learned reference: applied {path}")
+    return 0
+
+
 def _scan_from_args(
     root: str | Path,
     codex_config_path: str | Path | None,
@@ -521,3 +686,11 @@ def _safe_component(value: str, label: str) -> str:
     ):
         raise ValueError(f"unsafe {label}: {value}")
     return value
+
+
+def _csv_tuple(value: str) -> tuple[str, ...]:
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
+def _utc_now_isoformat() -> str:
+    return datetime.now(timezone.utc).isoformat()
