@@ -34,6 +34,7 @@ and `archive/`. They are useful for local continuity but must not be committed.
 - Source deletion must remain opt-in and require explicit confirmation.
 - Pointer skills should remain short routing surfaces; full skill content belongs in the managed vault.
 - Do not hardcode local absolute paths or user-specific defaults.
+- Host-specific disable behavior must stay isolated to operation kinds (`MOVE_TO_ARCHIVE` for Claude, `DISABLE_CODEX_SKILL` for Codex) and validated in `apply._validate_plan` before any write.
 
 ## Mandatory Execution Rules
 

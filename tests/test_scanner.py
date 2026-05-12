@@ -63,3 +63,26 @@ def test_scan_frontmatter_does_not_use_full_file_read(
     assert skills[0].name == "large-skill"
     assert skills[0].description == "Frontmatter only."
 
+
+def test_scanner_excludes_sos_archive_subtree(tmp_path):
+    from sos.scanner import scan_skill_roots
+
+    root = tmp_path / "skills"
+    root.mkdir()
+
+    live_skill = root / "live"
+    live_skill.mkdir()
+    (live_skill / "SKILL.md").write_text(
+        "---\nname: live\ndescription: live\n---\n", encoding="utf-8"
+    )
+
+    archived = root / ".sos-archive" / "pack" / "archived"
+    archived.mkdir(parents=True)
+    (archived / "SKILL.md").write_text(
+        "---\nname: archived\ndescription: archived\n---\n", encoding="utf-8"
+    )
+
+    found = scan_skill_roots((root,))
+    names = {skill.name for skill in found}
+    assert "live" in names
+    assert "archived" not in names

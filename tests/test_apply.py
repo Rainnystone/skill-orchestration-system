@@ -556,3 +556,123 @@ def test_safe_component_rejects_backslash_in_component():
     from sos.apply import _safe_component
     with pytest.raises(ValueError, match="unsafe"):
         _safe_component("foo\\bar", "pack_id")
+
+
+def test_apply_rejects_plan_when_host_mismatches_argument(tmp_path):
+    from sos.apply import apply_write_plan
+    from sos.models import WritePlan
+    from sos.paths import RuntimePaths
+    import pytest
+
+    plan = WritePlan(plan_id="plan-test", host="claude")
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+
+    with pytest.raises(ValueError, match="plan host"):
+        apply_write_plan(
+            plan,
+            runtime_paths,
+            tmp_path / "config.toml",
+            tmp_path / "root",
+            apply=False,
+            host="codex",
+        )
+
+
+def test_apply_rejects_codex_only_op_when_host_claude(tmp_path):
+    from sos.apply import apply_write_plan
+    from sos.models import OperationKind, WriteOperation, WritePlan
+    from sos.paths import RuntimePaths
+    import pytest
+
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    plan = WritePlan(
+        plan_id="plan-test",
+        host="claude",
+        operations=(
+            WriteOperation(
+                OperationKind.BACKUP_CODEX_CONFIG,
+                source=tmp_path / "config.toml",
+                target=runtime_paths.backups / "plan-test" / "config.toml",
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="codex-only"):
+        apply_write_plan(
+            plan,
+            runtime_paths,
+            tmp_path / "config.toml",
+            tmp_path / "root",
+            apply=False,
+            host="claude",
+        )
+
+
+def test_operation_phases_include_move_and_restore_from_archive():
+    from sos.apply import _OPERATION_PHASES
+    from sos.models import OperationKind
+
+    assert OperationKind.MOVE_TO_ARCHIVE in _OPERATION_PHASES
+    assert OperationKind.RESTORE_FROM_ARCHIVE in _OPERATION_PHASES
+    # MOVE_TO_ARCHIVE shares a phase with DISABLE_CODEX_SKILL (both are disable-equivalent steps).
+    assert _OPERATION_PHASES[OperationKind.MOVE_TO_ARCHIVE] == _OPERATION_PHASES[OperationKind.DISABLE_CODEX_SKILL]
+
+
+def test_apply_rejects_claude_only_op_when_host_codex(tmp_path):
+    """Symmetric to the codex-only-in-claude case: a codex plan must not contain MOVE_TO_ARCHIVE."""
+    from sos.apply import apply_write_plan
+    from sos.models import OperationKind, WriteOperation, WritePlan
+    from sos.paths import RuntimePaths
+    import pytest
+
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    plan = WritePlan(
+        plan_id="plan-test",
+        host="codex",
+        operations=(
+            WriteOperation(
+                OperationKind.MOVE_TO_ARCHIVE,
+                source=tmp_path / "root" / "skill",
+                target=tmp_path / "root" / ".sos-archive" / "pack" / "skill",
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="claude-only"):
+        apply_write_plan(
+            plan,
+            runtime_paths,
+            tmp_path / "config.toml",
+            tmp_path / "root",
+            apply=False,
+            host="codex",
+        )
+
+
+def test_claude_apply_saves_manifest_with_host_field(tmp_path):
+    """After Claude apply, the on-disk pack manifest must record host='claude'."""
+    from sos.apply import apply_write_plan
+    from sos.planner import build_pack_apply_plan
+    from sos.paths import RuntimePaths
+    from sos.propose import PackProposal
+    from sos.manifest import load_pack_manifest
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    (skill_root / "demo-skill").mkdir()
+    (skill_root / "demo-skill" / "SKILL.md").write_text(
+        "---\nname: demo-skill\ndescription: demo\n---\n", encoding="utf-8"
+    )
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+    plan = build_pack_apply_plan(
+        runtime_paths, skill_root, codex_config_path,
+        (PackProposal(pack_id="demo", skill_names=("demo-skill",), reason="t"),),
+        host="claude",
+    )
+    apply_result = apply_write_plan(
+        plan, runtime_paths, codex_config_path, skill_root,
+        apply=True, host="claude",
+    )
+    assert apply_result.status == "applied"
+    manifest = load_pack_manifest(runtime_paths.packs / "demo.toml")
+    assert manifest.host == "claude"

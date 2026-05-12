@@ -72,6 +72,18 @@ def _run_version_command(command: list[str], env_updates: dict[str, str]) -> tup
     return True, completed.stdout.strip()
 
 
+def _probe_claude_skill_root(cwd: Path) -> str | None:
+    candidates = []
+    home_env = os.environ.get("USERPROFILE") or os.environ.get("HOME")
+    if home_env:
+        candidates.append(Path(home_env) / ".claude" / "skills")
+    candidates.append(cwd / ".claude" / "skills")
+    for candidate in candidates:
+        if candidate.is_dir():
+            return str(candidate.resolve())
+    return None
+
+
 def find_repo_root(cwd: Path | str | None = None) -> Path | None:
     current = Path(cwd if cwd is not None else os.getcwd()).resolve()
     if current.is_file():
@@ -93,16 +105,20 @@ def detect(
     cwd: Path | str | None = None,
     cli_finder: Callable[[str], str | None] = shutil.which,
     version_runner: VersionRunner = _run_version_command,
+    *,
+    claude_lookup: bool = True,
 ) -> dict[str, object]:
     resolved_cwd = Path(cwd if cwd is not None else os.getcwd()).resolve()
     repo_root = find_repo_root(resolved_cwd)
     installed_cli = cli_finder("sos")
+    claude_root = _probe_claude_skill_root(resolved_cwd) if claude_lookup else None
     base: dict[str, object] = {
         "cwd": str(resolved_cwd),
         "repo_root": str(repo_root) if repo_root is not None else None,
         "installed_cli": installed_cli,
         "python": sys.executable,
         "platform": platform.platform(),
+        "claude_skill_root": claude_root,
     }
 
     if repo_root is not None:
@@ -174,9 +190,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cwd", default=os.getcwd())
     parser.add_argument("--no-path-lookup", action="store_true")
+    parser.add_argument("--no-claude-lookup", action="store_true")
     args = parser.parse_args(argv)
     cli_finder = (lambda _: None) if args.no_path_lookup else shutil.which
-    print(json.dumps(detect(cwd=args.cwd, cli_finder=cli_finder), sort_keys=True))
+    print(json.dumps(
+        detect(
+            cwd=args.cwd,
+            cli_finder=cli_finder,
+            claude_lookup=not args.no_claude_lookup,
+        ),
+        sort_keys=True,
+    ))
     return 0
 
 

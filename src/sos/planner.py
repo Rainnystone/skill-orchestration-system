@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from sos._archive import ARCHIVE_DIR_NAME
 from sos.models import (
     OperationKind,
     PackManifest,
@@ -25,25 +26,41 @@ def build_pack_apply_plan(
     active_skill_root: str | Path,
     codex_config_path: str | Path,
     proposals: Iterable[PackProposal],
+    *,
+    host: str = "codex",
 ) -> WritePlan:
+    if host not in {"codex", "claude"}:
+        raise ValueError(f"unsupported host: {host}")
+
     proposal_tuple = tuple(proposals)
     _validate_proposals(proposal_tuple)
     active_root = Path(active_skill_root)
     config_path = Path(codex_config_path)
-    plan_id = _plan_id(runtime_paths, active_root, config_path, proposal_tuple)
-    manifests = _pack_manifests(runtime_paths, active_root, proposal_tuple)
+    plan_id = _plan_id(runtime_paths, active_root, config_path, proposal_tuple, host)
+    manifests = _pack_manifests(runtime_paths, active_root, proposal_tuple, host)
     registry = _registry(manifests)
 
-    operations = (
-        _backup_config_operation(runtime_paths, plan_id, config_path),
-        _backup_vault_operation(runtime_paths, plan_id),
-        *_copy_operations(manifests),
-        *_manifest_operations(runtime_paths, manifests),
-        _registry_operation(runtime_paths, registry),
-        *_pointer_operations(active_root, manifests),
-        *_disable_config_operations(config_path, manifests),
-        *_delete_source_candidate_operations(active_root, manifests),
-    )
+    if host == "codex":
+        operations = (
+            _backup_config_operation(runtime_paths, plan_id, config_path),
+            _backup_vault_operation(runtime_paths, plan_id),
+            *_copy_operations(manifests),
+            *_manifest_operations(runtime_paths, manifests),
+            _registry_operation(runtime_paths, registry),
+            *_pointer_operations(active_root, manifests),
+            *_disable_config_operations(config_path, manifests),
+            *_delete_source_candidate_operations(active_root, manifests),
+        )
+    else:  # host == "claude"
+        operations = (
+            _backup_vault_operation(runtime_paths, plan_id),
+            *_copy_operations(manifests),
+            *_manifest_operations(runtime_paths, manifests),
+            _registry_operation(runtime_paths, registry),
+            *_pointer_operations(active_root, manifests),
+            *_move_to_archive_operations(active_root, manifests, host),
+            *_delete_source_candidate_operations(active_root, manifests),
+        )
     return WritePlan(
         plan_id=plan_id,
         pack_ids=tuple(manifest.id for manifest in manifests),
@@ -51,6 +68,7 @@ def build_pack_apply_plan(
         requires_apply=True,
         delete_source_requested=False,
         second_confirmation=False,
+        host=host,
     )
 
 
@@ -70,6 +88,7 @@ def load_write_plan(path: str | Path) -> WritePlan:
         requires_apply=data.get("requires_apply", False),
         delete_source_requested=data.get("delete_source_requested", False),
         second_confirmation=data.get("second_confirmation", False),
+        host=data.get("host", "codex"),
     )
 
 
@@ -131,9 +150,11 @@ def _plan_id(
     active_root: Path,
     config_path: Path,
     proposals: tuple[PackProposal, ...],
+    host: str,
 ) -> str:
     seed = {
         "version": 1,
+        "host": host,
         "runtime_root": str(runtime_paths.root),
         "active_skill_root": str(active_root),
         "codex_config_path": str(config_path),
@@ -156,6 +177,7 @@ def _pack_manifests(
     runtime_paths: RuntimePaths,
     active_root: Path,
     proposals: tuple[PackProposal, ...],
+    host: str,
 ) -> tuple[PackManifest, ...]:
     manifests: list[PackManifest] = []
     for proposal in proposals:
@@ -177,6 +199,7 @@ def _pack_manifests(
                 ),
                 sync_policy="clean-auto",
                 vault_root=runtime_paths.vault / proposal.pack_id,
+                host=host,
             )
         )
     return tuple(manifests)
@@ -364,15 +387,52 @@ def _delete_source_candidate_operation(
     manifest: PackManifest,
     skill: SkillEntry,
 ) -> WriteOperation:
-    _ensure_under(skill.source_path, active_root, "delete source target path")
+    if manifest.host == "claude":
+        target = active_root / ARCHIVE_DIR_NAME / manifest.id / skill.name
+    else:
+        target = skill.source_path
+    _ensure_under(target, active_root, "delete source target path")
     return WriteOperation(
         OperationKind.DELETE_SOURCE,
-        target=skill.source_path,
+        target=target,
         metadata={
             "pack_id": manifest.id,
             "skill_name": skill.name,
             "candidate": True,
             "active": False,
+        },
+    )
+
+
+def _move_to_archive_operations(
+    active_root: Path,
+    manifests: tuple[PackManifest, ...],
+    host: str,
+) -> tuple[WriteOperation, ...]:
+    return tuple(
+        _move_to_archive_operation(active_root, manifest, skill, host)
+        for manifest in manifests
+        for skill in manifest.skills
+    )
+
+
+def _move_to_archive_operation(
+    active_root: Path,
+    manifest: PackManifest,
+    skill: SkillEntry,
+    host: str,
+) -> WriteOperation:
+    archive_target = active_root / ARCHIVE_DIR_NAME / manifest.id / skill.name
+    _ensure_under(skill.source_path, active_root, "archive source path")
+    _ensure_under(archive_target, active_root, "archive target path")
+    return WriteOperation(
+        OperationKind.MOVE_TO_ARCHIVE,
+        source=skill.source_path,
+        target=archive_target,
+        metadata={
+            "pack_id": manifest.id,
+            "skill_name": skill.name,
+            "host": host,
         },
     )
 
@@ -384,6 +444,7 @@ def _write_plan_to_dict(plan: WritePlan) -> dict[str, Any]:
         "requires_apply": plan.requires_apply,
         "delete_source_requested": plan.delete_source_requested,
         "second_confirmation": plan.second_confirmation,
+        "host": plan.host,
         "operations": [_write_operation_to_dict(operation) for operation in plan.operations],
     }
 
@@ -430,6 +491,7 @@ def _pack_manifest_to_dict(manifest: PackManifest) -> dict[str, Any]:
         "description": manifest.description,
         "pointer_skill": manifest.pointer_skill,
         "sync_policy": manifest.sync_policy,
+        "host": manifest.host,
         "skills": [_skill_entry_to_dict(skill) for skill in manifest.skills],
         "triggers": [dict(trigger) for trigger in manifest.triggers],
     }

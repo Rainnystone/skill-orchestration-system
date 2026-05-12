@@ -23,6 +23,8 @@ class OperationKind(StrEnum):
     BACKUP_VAULT = "backup_vault"
     RESTORE_CONFIG = "restore_config"
     RESTORE_VAULT = "restore_vault"
+    MOVE_TO_ARCHIVE = "move_to_archive"
+    RESTORE_FROM_ARCHIVE = "restore_from_archive"
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,7 @@ class WritePlan:
     requires_apply: bool = False
     delete_source_requested: bool = False
     second_confirmation: bool = False
+    host: str = "codex"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "pack_ids", tuple(self.pack_ids))
@@ -61,6 +64,7 @@ class SkillEntry:
     last_vault_fingerprint: str = ""
     last_synced_at: str = ""
     description: str = ""
+    archived_source_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -74,6 +78,7 @@ class PackManifest:
     triggers: tuple[Mapping[str, str], ...] = ()
     sync_policy: str = "clean-auto"
     vault_root: Path | None = None
+    host: str = "codex"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "skills", tuple(self.skills))

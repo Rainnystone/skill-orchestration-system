@@ -81,7 +81,7 @@ def list_backups(runtime_paths: RuntimePaths) -> tuple[BackupRecord, ...]:
 def restore_backup(
     runtime_paths: RuntimePaths,
     backup_id: str,
-    codex_config_path: str | Path,
+    codex_config_path: str | Path | None,
     vault_root: str | Path,
     apply: bool,
 ) -> BackupRecord:
@@ -89,13 +89,22 @@ def restore_backup(
     if not apply:
         return record
 
-    config_target = Path(codex_config_path)
+    host = str(record.metadata.get("host", "codex"))
+
+    if host == "claude":
+        archive_moves = _planned_archive_restore(runtime_paths)
+        _restore_archive_moves(archive_moves)
+        if record.vault_path is not None:
+            _replace_directory_atomic(record.vault_path, Path(vault_root))
+        return record
+
+    config_target = Path(codex_config_path) if codex_config_path is not None else None
     config_rollback_path: Path | None = None
-    config_target_existed = config_target.exists()
+    config_target_existed = config_target.exists() if config_target is not None else False
     config_replaced = False
 
     try:
-        if record.config_path is not None:
+        if record.config_path is not None and config_target is not None:
             if config_target_existed:
                 config_rollback_path = _reserved_sibling_temp_path(config_target, suffix=".rollback")
                 shutil.copy2(config_target, config_rollback_path)
@@ -104,7 +113,7 @@ def restore_backup(
         if record.vault_path is not None:
             _replace_directory_atomic(record.vault_path, Path(vault_root))
     except Exception:
-        if config_replaced:
+        if config_replaced and config_target is not None:
             _restore_config_rollback(config_rollback_path, config_target, config_target_existed)
             config_rollback_path = None
         raise
@@ -131,6 +140,51 @@ def prune_backups(
             shutil.rmtree(runtime_paths.backups / record.backup_id)
 
     return kept
+
+
+def _planned_archive_restore(
+    runtime_paths: RuntimePaths,
+) -> tuple[tuple[Path, Path], ...]:
+    from sos.manifest import load_pack_manifest
+
+    moves: list[tuple[Path, Path]] = []
+    if not runtime_paths.packs.is_dir():
+        return ()
+    for manifest_path in sorted(runtime_paths.packs.glob("*.toml")):
+        manifest = load_pack_manifest(manifest_path)
+        for skill in manifest.skills:
+            if skill.archived_source_path is None:
+                continue
+            if not skill.archived_source_path.is_dir():
+                raise ValueError(
+                    f"archive entry missing for {manifest.id}/{skill.name}; "
+                    f"expected at {skill.archived_source_path}"
+                )
+            moves.append((skill.archived_source_path, skill.source_path))
+    return tuple(moves)
+
+
+def _restore_archive_moves(moves: tuple[tuple[Path, Path], ...]) -> None:
+    from sos._archive import ArchiveMove, rollback_archive_moves
+
+    journal: list[ArchiveMove] = []
+    try:
+        for source, target in moves:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+            try:
+                os.replace(source, target)
+            except OSError:
+                shutil.copytree(source, target)
+                shutil.rmtree(source)
+            journal.append(ArchiveMove(source=source, target=target))
+    except Exception:
+        rollback_archive_moves(tuple(journal))
+        raise
 
 
 def _reserve_backup_id(backups_root: Path, created_at: datetime) -> str:
