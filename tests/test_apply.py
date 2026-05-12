@@ -556,3 +556,62 @@ def test_safe_component_rejects_backslash_in_component():
     from sos.apply import _safe_component
     with pytest.raises(ValueError, match="unsafe"):
         _safe_component("foo\\bar", "pack_id")
+
+
+def test_apply_rejects_plan_when_host_mismatches_argument(tmp_path):
+    from sos.apply import apply_write_plan
+    from sos.models import WritePlan
+    from sos.paths import RuntimePaths
+    import pytest
+
+    plan = WritePlan(plan_id="plan-test", host="claude")
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+
+    with pytest.raises(ValueError, match="plan host"):
+        apply_write_plan(
+            plan,
+            runtime_paths,
+            tmp_path / "config.toml",
+            tmp_path / "root",
+            apply=False,
+            host="codex",
+        )
+
+
+def test_apply_rejects_codex_only_op_when_host_claude(tmp_path):
+    from sos.apply import apply_write_plan
+    from sos.models import OperationKind, WriteOperation, WritePlan
+    from sos.paths import RuntimePaths
+    import pytest
+
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    plan = WritePlan(
+        plan_id="plan-test",
+        host="claude",
+        operations=(
+            WriteOperation(
+                OperationKind.BACKUP_CODEX_CONFIG,
+                source=tmp_path / "config.toml",
+                target=runtime_paths.backups / "plan-test" / "config.toml",
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="codex-only"):
+        apply_write_plan(
+            plan,
+            runtime_paths,
+            tmp_path / "config.toml",
+            tmp_path / "root",
+            apply=False,
+            host="claude",
+        )
+
+
+def test_operation_phases_include_move_and_restore_from_archive():
+    from sos.apply import _OPERATION_PHASES
+    from sos.models import OperationKind
+
+    assert OperationKind.MOVE_TO_ARCHIVE in _OPERATION_PHASES
+    assert OperationKind.RESTORE_FROM_ARCHIVE in _OPERATION_PHASES
+    # MOVE_TO_ARCHIVE shares a phase with DISABLE_CODEX_SKILL (both are disable-equivalent steps).
+    assert _OPERATION_PHASES[OperationKind.MOVE_TO_ARCHIVE] == _OPERATION_PHASES[OperationKind.DISABLE_CODEX_SKILL]

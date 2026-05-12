@@ -72,7 +72,9 @@ _OPERATION_PHASES = {
     OperationKind.WRITE_REGISTRY: 3,
     OperationKind.WRITE_POINTER: 4,
     OperationKind.DISABLE_CODEX_SKILL: 5,
+    OperationKind.MOVE_TO_ARCHIVE: 5,
     OperationKind.DELETE_SOURCE: 6,
+    OperationKind.RESTORE_FROM_ARCHIVE: 7,
 }
 
 
@@ -83,13 +85,20 @@ def apply_write_plan(
     active_skill_root: str | Path,
     apply: bool,
     *,
+    host: str = "codex",
     delete_source: bool = False,
     confirm_delete_source: str | None = None,
     delete_source_paths: tuple[str | Path, ...] | None = None,
 ) -> ApplyResult:
+    if host not in {"codex", "claude"}:
+        raise ValueError(f"unsupported host: {host}")
+    if plan.host != host:
+        raise ValueError(
+            f"plan host {plan.host!r} does not match --host {host!r}"
+        )
     config_path = Path(codex_config_path)
     active_root = Path(active_skill_root)
-    validated = _validate_plan(plan, runtime_paths, config_path, active_root)
+    validated = _validate_plan(plan, runtime_paths, config_path, active_root, host)
     source_deletion_paths = _validated_source_deletion_paths(
         validated.delete_source_candidates,
         apply=apply,
@@ -297,19 +306,27 @@ def _validate_plan(
     runtime_paths: RuntimePaths,
     config_path: Path,
     active_root: Path,
+    host: str,
 ) -> _ValidatedPlan:
     _validate_operation_kinds_and_order(plan.operations)
-    _validate_backup_operations(plan, runtime_paths, config_path)
+    _validate_host_operation_set(plan.operations, host)
+    if host == "codex":
+        _validate_backup_operations(plan, runtime_paths, config_path)
+    else:  # host == "claude"
+        _validate_backup_vault_only(plan, runtime_paths)
     manifests = _validated_manifests(plan, runtime_paths, active_root)
     _validate_copy_operations(plan, manifests, active_root, runtime_paths)
     _validate_registry_operation(plan, runtime_paths, manifests)
     pointer_targets = _validate_pointer_operations(plan, active_root, manifests)
-    disabled_skill_md_paths = _validate_disable_operations(
-        plan,
-        active_root,
-        config_path,
-        manifests,
-    )
+    if host == "codex":
+        disabled_skill_md_paths = _validate_disable_operations(
+            plan,
+            active_root,
+            config_path,
+            manifests,
+        )
+    else:
+        disabled_skill_md_paths = ()
     delete_source_candidates = _validate_delete_candidates(plan, active_root, manifests)
     return _ValidatedPlan(
         manifests=manifests,
@@ -328,6 +345,32 @@ def _validate_operation_kinds_and_order(operations: tuple[WriteOperation, ...]) 
         if phase < current_phase:
             raise ValueError(f"unexpected operation order at {operation.kind.value}")
         current_phase = phase
+
+
+def _validate_host_operation_set(
+    operations: tuple[WriteOperation, ...], host: str
+) -> None:
+    kinds = {operation.kind for operation in operations}
+    codex_only = {OperationKind.BACKUP_CODEX_CONFIG, OperationKind.DISABLE_CODEX_SKILL}
+    claude_only = {OperationKind.MOVE_TO_ARCHIVE}
+    if host == "codex" and kinds & claude_only:
+        raise ValueError(f"claude-only operations in codex plan: {sorted(k.value for k in kinds & claude_only)}")
+    if host == "claude" and kinds & codex_only:
+        raise ValueError(f"codex-only operations in claude plan: {sorted(k.value for k in kinds & codex_only)}")
+
+
+def _validate_backup_vault_only(
+    plan: WritePlan,
+    runtime_paths: RuntimePaths,
+) -> None:
+    backup_vault = _single_operation(plan, OperationKind.BACKUP_VAULT)
+    if _required_path(backup_vault.source) != runtime_paths.vault:
+        raise ValueError("backup vault source does not match runtime vault")
+    _ensure_under(
+        _required_path(backup_vault.target),
+        runtime_paths.backups,
+        "vault backup target path",
+    )
 
 
 def _validate_backup_operations(
