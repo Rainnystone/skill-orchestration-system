@@ -88,6 +88,7 @@ def recommend_packs(
             context.intent,
             context.learned_reference,
             context.workspace_id,
+            context.scenario_tags,
             local_selection_counts,
         )
         for manifest in context.pack_manifests
@@ -102,6 +103,7 @@ def _score_manifest(
     intent: str,
     learned_reference: str,
     workspace_id: str,
+    scenario_tags: frozenset[str],
     local_selection_counts: Counter[str],
 ) -> Recommendation:
     score = 0
@@ -118,7 +120,12 @@ def _score_manifest(
         score += intent_score
         reasons.append("intent match")
 
-    learned_score = _learned_reference_score(learned_reference, manifest, workspace_id)
+    learned_score = _learned_reference_score(
+        learned_reference,
+        manifest,
+        workspace_id,
+        scenario_tags,
+    )
     if learned_score:
         score += learned_score
         reasons.append("learned reference")
@@ -167,10 +174,11 @@ def _learned_reference_score(
     learned_reference: str,
     manifest: PackManifest,
     workspace_id: str,
+    scenario_tags: frozenset[str],
 ) -> int:
     if not learned_reference:
         return 0
-    preferred_targets = _preferred_targets(learned_reference, workspace_id)
+    preferred_targets = _preferred_targets(learned_reference, workspace_id, scenario_tags)
     score = 0
     if manifest.id.lower() in preferred_targets:
         score += 5
@@ -216,20 +224,33 @@ def _keyword_matches(search_blob: str, search_tokens: frozenset[str], keyword: s
     return keyword in search_tokens
 
 
-def _preferred_targets(learned_reference: str, workspace_id: str) -> frozenset[str]:
+def _preferred_targets(
+    learned_reference: str,
+    workspace_id: str,
+    scenario_tags: frozenset[str],
+) -> frozenset[str]:
     current_workspace: str | None = None
+    current_tags: frozenset[str] = frozenset()
     targets: set[str] = set()
     workspace_prefix = "workspace:"
+    tags_prefix = "scenario tags:"
     prefix = "prefer recommending:"
     for line in learned_reference.splitlines():
         stripped = line.strip()
         lowered = stripped.lower()
         if lowered.startswith(workspace_prefix):
             current_workspace = stripped[len(workspace_prefix) :].strip()
+            current_tags = frozenset()
+            continue
+        if lowered.startswith(tags_prefix):
+            raw_tags = stripped[len(tags_prefix) :].split(",")
+            current_tags = frozenset(tag.strip().lower() for tag in raw_tags if tag.strip())
             continue
         if not stripped.lower().startswith(prefix):
             continue
         if current_workspace != workspace_id:
+            continue
+        if current_tags and not current_tags.intersection(scenario_tags):
             continue
         values = stripped[len(prefix) :].split(",")
         for value in values:
