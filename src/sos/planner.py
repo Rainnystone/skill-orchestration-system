@@ -57,7 +57,7 @@ def build_pack_apply_plan(
             *_manifest_operations(runtime_paths, manifests),
             _registry_operation(runtime_paths, registry),
             *_pointer_operations(active_root, manifests),
-            *_move_to_archive_operations(active_root, manifests),
+            *_move_to_archive_operations(active_root, manifests, host),
             *_delete_source_candidate_operations(active_root, manifests),
         )
     return WritePlan(
@@ -402,9 +402,10 @@ def _delete_source_candidate_operation(
 def _move_to_archive_operations(
     active_root: Path,
     manifests: tuple[PackManifest, ...],
+    host: str,
 ) -> tuple[WriteOperation, ...]:
     return tuple(
-        _move_to_archive_operation(active_root, manifest, skill)
+        _move_to_archive_operation(active_root, manifest, skill, host)
         for manifest in manifests
         for skill in manifest.skills
     )
@@ -414,6 +415,7 @@ def _move_to_archive_operation(
     active_root: Path,
     manifest: PackManifest,
     skill: SkillEntry,
+    host: str,
 ) -> WriteOperation:
     archive_target = active_root / ".sos-archive" / manifest.id / skill.name
     _ensure_under(skill.source_path, active_root, "archive source path")
@@ -425,7 +427,7 @@ def _move_to_archive_operation(
         metadata={
             "pack_id": manifest.id,
             "skill_name": skill.name,
-            "host": "claude",
+            "host": host,
         },
     )
 

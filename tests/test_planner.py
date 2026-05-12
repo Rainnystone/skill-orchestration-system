@@ -486,3 +486,21 @@ def test_plan_preserves_multi_pack_and_multi_skill_operation_order(tmp_path: Pat
         (OperationKind.DELETE_SOURCE, "apify", "apify-ecommerce"),
         (OperationKind.DELETE_SOURCE, "obsidian", "obsidian-cli"),
     ]
+
+
+def test_build_pack_apply_plan_rejects_unknown_host(tmp_path):
+    from sos.planner import build_pack_apply_plan
+    from sos.paths import RuntimePaths
+    from sos.propose import PackProposal
+    import pytest
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unsupported host"):
+        build_pack_apply_plan(
+            runtime_paths, skill_root, codex_config_path, (), host="gemini"
+        )
