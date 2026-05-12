@@ -491,6 +491,7 @@ def _pack_manifest_to_dict(manifest: PackManifest) -> dict[str, Any]:
         "description": manifest.description,
         "pointer_skill": manifest.pointer_skill,
         "sync_policy": manifest.sync_policy,
+        "host": manifest.host,
         "skills": [_skill_entry_to_dict(skill) for skill in manifest.skills],
         "triggers": [dict(trigger) for trigger in manifest.triggers],
     }

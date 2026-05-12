@@ -92,11 +92,7 @@ def restore_backup(
     host = str(record.metadata.get("host", "codex"))
 
     if host == "claude":
-        active_skill_root_value = record.metadata.get("active_skill_root")
-        if active_skill_root_value is None:
-            raise ValueError("claude restore requires active_skill_root in backup metadata")
-        active_root = Path(str(active_skill_root_value))
-        archive_moves = _planned_archive_restore(runtime_paths, active_root)
+        archive_moves = _planned_archive_restore(runtime_paths)
         _restore_archive_moves(archive_moves)
         if record.vault_path is not None:
             _replace_directory_atomic(record.vault_path, Path(vault_root))
@@ -148,7 +144,6 @@ def prune_backups(
 
 def _planned_archive_restore(
     runtime_paths: RuntimePaths,
-    active_root: Path,
 ) -> tuple[tuple[Path, Path], ...]:
     from sos.manifest import load_pack_manifest
 
@@ -170,18 +165,26 @@ def _planned_archive_restore(
 
 
 def _restore_archive_moves(moves: tuple[tuple[Path, Path], ...]) -> None:
-    for source, target in moves:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            if target.is_dir():
-                shutil.rmtree(target)
-            else:
-                target.unlink()
-        try:
-            os.replace(source, target)
-        except OSError:
-            shutil.copytree(source, target)
-            shutil.rmtree(source)
+    from sos._archive import ArchiveMove, rollback_archive_moves
+
+    journal: list[ArchiveMove] = []
+    try:
+        for source, target in moves:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+            try:
+                os.replace(source, target)
+            except OSError:
+                shutil.copytree(source, target)
+                shutil.rmtree(source)
+            journal.append(ArchiveMove(source=source, target=target))
+    except Exception:
+        rollback_archive_moves(tuple(journal))
+        raise
 
 
 def _reserve_backup_id(backups_root: Path, created_at: datetime) -> str:

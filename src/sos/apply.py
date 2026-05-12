@@ -728,6 +728,7 @@ def _pack_manifest_from_metadata(data: Mapping[str, Any]) -> PackManifest:
             {str(key): str(value) for key, value in _required_mapping(trigger).items()}
             for trigger in data.get("triggers", ())
         ),
+        host=str(data.get("host", "codex")),
     )
 
 
