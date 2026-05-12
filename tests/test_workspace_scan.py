@@ -44,6 +44,28 @@ def test_scan_workspace_detects_mixed_python_and_data(tmp_path: Path) -> None:
     assert "mixed" in signal.kinds
 
 
+def test_scan_workspace_does_not_read_file_contents(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "shallow"
+    workspace.mkdir()
+    (workspace / "README.md").write_text("# Project\n", encoding="utf-8")
+    (workspace / "brief.pdf").write_bytes(b"%PDF")
+
+    def fail_read(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("scan_workspace should not read file contents")
+
+    monkeypatch.setattr(Path, "read_text", fail_read)
+    monkeypatch.setattr(Path, "read_bytes", fail_read)
+    monkeypatch.setattr(Path, "open", fail_read)
+
+    signal = scan_workspace(workspace)
+
+    assert set(signal.top_files) == {"README.md", "brief.pdf"}
+    assert "docs" in signal.kinds
+
+
 def test_scan_workspace_rejects_missing_root(tmp_path: Path) -> None:
     missing = tmp_path / "missing"
 

@@ -85,6 +85,34 @@ def test_browser_intent_ranks_browser_first_for_sparse_workspace(tmp_path: Path)
     assert recommendations[0].pack_id == "browser"
 
 
+def test_python_workspace_does_not_match_copy_or_happy_by_py_substring(
+    tmp_path: Path,
+) -> None:
+    runtime_paths = _write_registry(
+        tmp_path,
+        extra_packs=(
+            _pack_manifest(
+                pack_id="copy-helper",
+                display_name="Happy Copy",
+                aliases=("copy",),
+                description="Make users happy with copy updates.",
+                skills=(
+                    _skill_entry("copy-edit", "Happy copy support for wording changes."),
+                ),
+            ),
+        ),
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
+
+    context = build_recommendation_context(runtime_paths, workspace)
+    recommendations = recommend_packs(context, limit=10)
+
+    copy_helper = next(item for item in recommendations if item.pack_id == "copy-helper")
+    assert "workspace signals" not in copy_helper.reason
+
+
 def test_recent_accepted_local_events_add_browser_soft_hint(tmp_path: Path) -> None:
     runtime_paths = _write_registry(tmp_path)
     workspace = tmp_path / "workspace"
@@ -113,6 +141,30 @@ def test_recent_accepted_local_events_add_browser_soft_hint(tmp_path: Path) -> N
 
     browser = next(item for item in recommendations if item.pack_id == "browser")
     assert "accepted local selections" in browser.reason
+
+
+def test_browser_pack_does_not_get_learned_reference_reason_from_scenario_text(
+    tmp_path: Path,
+) -> None:
+    runtime_paths = _write_registry(tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    recommendation_store.learned_reference_path(runtime_paths).parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    recommendation_store.learned_reference_path(runtime_paths).write_text(
+        "## Learned Recommendation Hints\n\n"
+        "Scenario: browser debugging\n"
+        "Prefer recommending: docs\n",
+        encoding="utf-8",
+    )
+
+    context = build_recommendation_context(runtime_paths, workspace)
+    recommendations = recommend_packs(context, limit=10)
+
+    browser = next(item for item in recommendations if item.pack_id == "browser")
+    assert "learned reference" not in browser.reason
 
 
 def test_build_context_does_not_create_learned_reference_when_missing(tmp_path: Path) -> None:

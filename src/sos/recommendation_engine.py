@@ -109,7 +109,7 @@ def _score_manifest(
         score += intent_score
         reasons.append("intent match")
 
-    learned_score = _learned_reference_score(learned_reference, manifest, search_blob)
+    learned_score = _learned_reference_score(learned_reference, manifest)
     if learned_score:
         score += learned_score
         reasons.append("learned reference")
@@ -133,11 +133,12 @@ def _score_manifest(
 
 def _workspace_score(workspace_signal: WorkspaceSignal, search_blob: str) -> int:
     score = 0
+    search_tokens = frozenset(_tokens(search_blob))
     for kind in workspace_signal.kinds:
         if kind == "mixed":
             continue
         keywords = _KIND_KEYWORDS.get(kind, ())
-        if any(keyword in search_blob for keyword in keywords):
+        if any(_keyword_matches(search_blob, search_tokens, keyword) for keyword in keywords):
             score += 6
     if "readme" in workspace_signal.markers and "readme" in search_blob:
         score += 1
@@ -156,21 +157,16 @@ def _text_match_score(text: str, search_blob: str, weight: int) -> int:
 def _learned_reference_score(
     learned_reference: str,
     manifest: PackManifest,
-    search_blob: str,
 ) -> int:
     if not learned_reference:
         return 0
-    reference = learned_reference.lower()
+    preferred_targets = _preferred_targets(learned_reference)
     score = 0
-    if f"prefer recommending: {manifest.id.lower()}" in reference:
+    if manifest.id.lower() in preferred_targets:
         score += 5
     for alias in manifest.aliases:
-        if alias.lower() in reference:
+        if alias.lower() in preferred_targets:
             score += 1
-    for token in _tokens(search_blob):
-        if token and token in reference:
-            score += 1
-            break
     return score
 
 
@@ -200,6 +196,27 @@ def _manifest_search_blob(manifest: PackManifest) -> str:
     for skill in manifest.skills:
         parts.extend((skill.name, skill.description))
     return " ".join(part.lower() for part in parts if part)
+
+
+def _keyword_matches(search_blob: str, search_tokens: frozenset[str], keyword: str) -> bool:
+    if " " in keyword:
+        return keyword in search_blob
+    return keyword in search_tokens
+
+
+def _preferred_targets(learned_reference: str) -> frozenset[str]:
+    targets: set[str] = set()
+    prefix = "prefer recommending:"
+    for line in learned_reference.splitlines():
+        stripped = line.strip()
+        if not stripped.lower().startswith(prefix):
+            continue
+        values = stripped[len(prefix) :].split(",")
+        for value in values:
+            cleaned = value.strip().lower()
+            if cleaned:
+                targets.add(cleaned)
+    return frozenset(targets)
 
 
 def _tokens(text: str) -> tuple[str, ...]:
