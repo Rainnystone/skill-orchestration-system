@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 from dataclasses import dataclass, replace
@@ -65,6 +66,12 @@ class _PathSnapshot:
     backup_path: Path | None = None
 
 
+@dataclass(frozen=True)
+class _ArchiveMove:
+    source: Path
+    target: Path
+
+
 _OPERATION_PHASES = {
     OperationKind.BACKUP_CODEX_CONFIG: 0,
     OperationKind.BACKUP_VAULT: 0,
@@ -123,6 +130,8 @@ def apply_write_plan(
         config_path,
         source_deletion_paths,
     )
+    archive_journal: list[_ArchiveMove] = []
+    archive_map: dict[Path, Path] = {}
 
     try:
         for operation in _operations_of_kind(plan, OperationKind.COPY_SKILL):
@@ -131,7 +140,14 @@ def apply_write_plan(
                 _required_path(operation.target),
             )
 
-        baselined_manifests = _with_initial_fingerprints(validated.manifests)
+        if host == "claude":
+            for operation in _operations_of_kind(plan, OperationKind.MOVE_TO_ARCHIVE):
+                _execute_move_to_archive(operation, archive_journal)
+                archive_map[_required_path(operation.source)] = _required_path(operation.target)
+
+        baselined_manifests = _with_initial_fingerprints(
+            validated.manifests, archive_map=archive_map
+        )
         for operation, manifest in zip(
             _operations_of_kind(plan, OperationKind.WRITE_MANIFEST),
             baselined_manifests,
@@ -168,6 +184,7 @@ def apply_write_plan(
         rollback_message = ""
         try:
             _restore_snapshots(snapshots)
+            _rollback_archive_moves(tuple(archive_journal))
         except Exception as rollback_error:
             rollback_message = f"; rollback failed: {rollback_error}"
         return ApplyResult(
@@ -189,17 +206,23 @@ def apply_write_plan(
 
 def _with_initial_fingerprints(
     manifests: tuple[PackManifest, ...],
+    *,
+    archive_map: dict[Path, Path] | None = None,
 ) -> tuple[PackManifest, ...]:
     synced_at = datetime.now(timezone.utc).isoformat()
+    mapping = archive_map or {}
     return tuple(
         replace(
             manifest,
             skills=tuple(
                 replace(
                     skill,
-                    last_source_fingerprint=fingerprint_dir(skill.source_path),
+                    last_source_fingerprint=fingerprint_dir(
+                        mapping.get(skill.source_path, skill.source_path)
+                    ),
                     last_vault_fingerprint=fingerprint_dir(skill.vault_path),
                     last_synced_at=synced_at,
+                    archived_source_path=mapping.get(skill.source_path),
                 )
                 for skill in manifest.skills
             ),
@@ -281,6 +304,33 @@ def _restore_snapshot(snapshot: _PathSnapshot) -> None:
         shutil.copy2(snapshot.backup_path, snapshot.path)
         return
     raise ValueError(f"unknown snapshot kind: {snapshot.kind}")
+
+
+def _execute_move_to_archive(
+    operation: WriteOperation,
+    journal: list[_ArchiveMove],
+) -> None:
+    source = _required_path(operation.source)
+    target = _required_path(operation.target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.replace(source, target)
+    except OSError:
+        # Cross-device fallback. Copy then remove; rollback re-creates source from target.
+        shutil.copytree(source, target)
+        shutil.rmtree(source)
+    journal.append(_ArchiveMove(source=source, target=target))
+
+
+def _rollback_archive_moves(journal: tuple[_ArchiveMove, ...]) -> None:
+    for move in reversed(journal):
+        if move.target.exists():
+            move.source.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.replace(move.target, move.source)
+            except OSError:
+                shutil.copytree(move.target, move.source)
+                shutil.rmtree(move.target)
 
 
 def _remove_path(path: Path) -> None:
