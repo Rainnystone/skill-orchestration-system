@@ -694,6 +694,71 @@ def test_recommend_record_selection_and_learn(capsys, tmp_path: Path):
     assert str(workspace_root) not in first_record_output
 
 
+def test_recommend_learn_skips_history_that_does_not_match_runtime_manifests(
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    stale_events = []
+    for index in range(10):
+        stale_events.append(
+            {
+                "schema_version": 1,
+                "created_at": f"2026-05-12T10:00:0{index}+00:00",
+                "workspace_id": "sha256:stale",
+                "scenario_label": "docs",
+                "scenario_tags": ["docs"],
+                "selected_pack_ids": ["web"],
+                "selected_skill_names": ["documents"],
+                "manifest_fingerprint": "sha256:stale",
+                "selection_source": "user_accepted",
+                "outcome": "activated",
+            }
+        )
+        stale_events.append(
+            {
+                "schema_version": 1,
+                "created_at": f"2026-05-12T10:01:0{index}+00:00",
+                "workspace_id": "sha256:old-docs",
+                "scenario_label": "docs",
+                "scenario_tags": ["docs"],
+                "selected_pack_ids": ["docs"],
+                "selected_skill_names": ["removed-skill"],
+                "manifest_fingerprint": "sha256:old-docs",
+                "selection_source": "user_accepted",
+                "outcome": "activated",
+            }
+        )
+    events_path = selection_events_path(runtime_paths)
+    events_path.parent.mkdir(parents=True, exist_ok=True)
+    events_path.write_text(
+        "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in stale_events),
+        encoding="utf-8",
+    )
+
+    learn_exit = main(
+        [
+            "recommend",
+            "learn",
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--apply",
+        ]
+    )
+
+    assert learn_exit == 0
+    learned_text = learned_reference_path(runtime_paths).read_text(encoding="utf-8")
+    assert "Prefer recommending: web" not in learned_text
+    assert "Prefer recommending: docs" not in learned_text
+    assert "Status: empty" in learned_text
+
+
 def test_recommend_record_selection_canonicalizes_duplicate_and_ordered_values(
     tmp_path: Path,
 ):

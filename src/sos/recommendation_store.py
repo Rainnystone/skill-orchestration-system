@@ -302,4 +302,3 @@ def _looks_like_path(value: str) -> bool:
     if "/" in value or "\\" in value:
         return True
     return len(value) >= 3 and value[1] == ":" and value[0].isalpha() and value[2] in {"\\", "/"}
-

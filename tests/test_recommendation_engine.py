@@ -302,6 +302,37 @@ def test_matching_workspace_learned_reference_without_tags_does_not_add_reason(
     assert "learned reference" not in docs.reason
 
 
+def test_malformed_learned_reference_block_does_not_inherit_previous_context(
+    tmp_path: Path,
+) -> None:
+    runtime_paths = _write_registry(tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    workspace_id = recommendation_store.workspace_id_for_path(workspace)
+    recommendation_store.learned_reference_path(runtime_paths).parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    recommendation_store.learned_reference_path(runtime_paths).write_text(
+        "## Learned Recommendation Hints\n\n"
+        f"Workspace: {workspace_id}\n"
+        "Scenario: browser debugging\n"
+        "Scenario tags: browser\n"
+        "Prefer recommending: browser\n"
+        "Evidence: 10 accepted selections\n\n"
+        "Scenario: malformed block without workspace or tags\n"
+        "Prefer recommending: docs\n"
+        "Evidence: 10 accepted selections\n",
+        encoding="utf-8",
+    )
+
+    context = build_recommendation_context(runtime_paths, workspace, intent="browser help")
+    recommendations = recommend_packs(context, limit=10)
+
+    docs = next(item for item in recommendations if item.pack_id == "docs")
+    assert "learned reference" not in docs.reason
+
+
 def test_build_context_does_not_create_learned_reference_when_missing(tmp_path: Path) -> None:
     runtime_paths = _write_registry(tmp_path)
     workspace = tmp_path / "workspace"

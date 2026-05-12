@@ -229,35 +229,54 @@ def _preferred_targets(
     workspace_id: str,
     scenario_tags: frozenset[str],
 ) -> frozenset[str]:
-    current_workspace: str | None = None
-    current_tags: frozenset[str] = frozenset()
     targets: set[str] = set()
     workspace_prefix = "workspace:"
     tags_prefix = "scenario tags:"
     prefix = "prefer recommending:"
-    for line in learned_reference.splitlines():
-        stripped = line.strip()
-        lowered = stripped.lower()
-        if lowered.startswith(workspace_prefix):
-            current_workspace = stripped[len(workspace_prefix) :].strip()
-            current_tags = frozenset()
-            continue
-        if lowered.startswith(tags_prefix):
-            raw_tags = stripped[len(tags_prefix) :].split(",")
-            current_tags = frozenset(tag.strip().lower() for tag in raw_tags if tag.strip())
-            continue
-        if not stripped.lower().startswith(prefix):
-            continue
+    for block in _learned_reference_blocks(learned_reference):
+        current_workspace: str | None = None
+        current_tags: frozenset[str] = frozenset()
+        block_targets: list[str] = []
+        for line in block:
+            stripped = line.strip()
+            lowered = stripped.lower()
+            if lowered.startswith(workspace_prefix):
+                current_workspace = stripped[len(workspace_prefix) :].strip()
+                continue
+            if lowered.startswith(tags_prefix):
+                raw_tags = stripped[len(tags_prefix) :].split(",")
+                current_tags = frozenset(
+                    tag.strip().lower() for tag in raw_tags if tag.strip()
+                )
+                continue
+            if not stripped.lower().startswith(prefix):
+                continue
+            values = stripped[len(prefix) :].split(",")
+            for value in values:
+                cleaned = value.strip().lower()
+                if cleaned:
+                    block_targets.append(cleaned)
         if current_workspace != workspace_id:
             continue
         if not current_tags or not current_tags.intersection(scenario_tags):
             continue
-        values = stripped[len(prefix) :].split(",")
-        for value in values:
-            cleaned = value.strip().lower()
-            if cleaned:
-                targets.add(cleaned)
+        targets.update(block_targets)
     return frozenset(targets)
+
+
+def _learned_reference_blocks(learned_reference: str) -> tuple[tuple[str, ...], ...]:
+    blocks: list[tuple[str, ...]] = []
+    current_block: list[str] = []
+    for line in learned_reference.splitlines():
+        if not line.strip():
+            if current_block:
+                blocks.append(tuple(current_block))
+                current_block = []
+            continue
+        current_block.append(line)
+    if current_block:
+        blocks.append(tuple(current_block))
+    return tuple(blocks)
 
 
 def _scenario_tags(workspace_signal: WorkspaceSignal, intent: str) -> frozenset[str]:

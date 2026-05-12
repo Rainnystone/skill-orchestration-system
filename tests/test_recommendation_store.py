@@ -520,4 +520,3 @@ def test_workspace_id_is_stable_and_hides_raw_path(tmp_path: Path):
     assert first == second
     assert first.startswith("sha256:")
     assert str(path.resolve()) not in first
-

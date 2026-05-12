@@ -558,7 +558,12 @@ def _handle_recommend_record_selection(args: argparse.Namespace) -> int:
 
 def _handle_recommend_learn(args: argparse.Namespace) -> int:
     runtime_paths = RuntimePaths.from_root(args.runtime_root)
-    reference = build_learned_reference(load_selection_events(runtime_paths))
+    reference = build_learned_reference(
+        _manifest_valid_selection_events(
+            load_selection_events(runtime_paths),
+            runtime_paths,
+        )
+    )
     path = write_learned_reference(runtime_paths, reference, apply=bool(args.apply))
     if not args.apply:
         print("learned reference preview:")
@@ -630,6 +635,36 @@ def _validate_scenario_label_argument(
     }
     if scenario_label.strip() not in accepted_labels:
         raise ValueError(f"unsafe scenario_label: {scenario_label}")
+
+
+def _manifest_valid_selection_events(
+    events: Iterable[SelectionEvent],
+    runtime_paths: RuntimePaths,
+) -> tuple[SelectionEvent, ...]:
+    manifests_by_id = {
+        manifest.id: manifest for manifest in list_pack_manifests(runtime_paths)
+    }
+    valid_events: list[SelectionEvent] = []
+    for event in events:
+        selected_pack_ids = set(event.selected_pack_ids)
+        selected_skill_names = set(event.selected_skill_names)
+        if not selected_pack_ids.issubset(manifests_by_id):
+            continue
+        skill_names_by_pack = {
+            pack_id: {skill.name for skill in manifests_by_id[pack_id].skills}
+            for pack_id in selected_pack_ids
+        }
+        if not selected_skill_names.issubset(
+            set().union(*skill_names_by_pack.values())
+        ):
+            continue
+        if any(
+            not selected_skill_names.intersection(skill_names)
+            for skill_names in skill_names_by_pack.values()
+        ):
+            continue
+        valid_events.append(event)
+    return tuple(valid_events)
 
 
 def _redacted_runtime_path(path: str | Path, runtime_paths: RuntimePaths) -> str:
