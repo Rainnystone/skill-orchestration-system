@@ -229,8 +229,8 @@ def _count_user_accepted_activation_events(
 def _validate_selection_event(event: SelectionEvent) -> None:
     _validate_freeform_label(event.created_at, "created_at", max_length=64)
     _validate_identifier_like(event.workspace_id, "workspace_id")
-    _validate_scenario_label(event.scenario_label)
     _validate_identifier_values(event.scenario_tags, "scenario_tag")
+    _validate_scenario_label(event.scenario_label, event.scenario_tags)
     _validate_identifier_values(event.selected_pack_ids, "selected_pack_id")
     _validate_identifier_values(event.selected_skill_names, "selected_skill_name")
     _validate_identifier_like(event.manifest_fingerprint, "manifest_fingerprint")
@@ -238,12 +238,15 @@ def _validate_selection_event(event: SelectionEvent) -> None:
     _validate_identifier_values((event.outcome,), "outcome")
 
 
-def _validate_scenario_label(value: str) -> None:
+def _validate_scenario_label(value: str, scenario_tags: tuple[str, ...]) -> None:
     _validate_freeform_label(
         value,
         "scenario_label",
         max_length=_MAX_SCENARIO_LABEL_LENGTH,
     )
+    canonical_label = " ".join(dict.fromkeys(scenario_tags))
+    if value.strip() != canonical_label:
+        raise ValueError(f"unsafe scenario_label: {value}")
 
 
 def _validate_identifier_values(values: tuple[str, ...], label: str) -> None:

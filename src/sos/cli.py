@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -452,14 +452,15 @@ def _handle_recommend_context(args: argparse.Namespace) -> int:
     recommendations = recommend_packs(context)
     learned_path = learned_reference_path(runtime_paths)
     workspace_kinds = ", ".join(context.workspace_signal.kinds) or "none"
-    print(f"workspace_root: {context.workspace_root}")
+    print("workspace_root: WORKSPACE_ROOT")
+    print(f"workspace_id: {context.workspace_id}")
     print(f"workspace_kinds: {workspace_kinds}")
     print(f"runtime_packs: {len(context.pack_manifests)}")
     print(
         "learned_reference: "
         + ("present" if learned_path.is_file() else "missing")
     )
-    print(f"learned_reference_path: {learned_path}")
+    print(f"learned_reference_path: {_redacted_runtime_path(learned_path, runtime_paths)}")
     print(f"selection_events: {len(context.selection_events)}")
     print(f"recommendations: {len(recommendations)}")
     for recommendation in recommendations:
@@ -477,8 +478,15 @@ def _handle_recommend_activation_plan(args: argparse.Namespace) -> int:
         _csv_tuple(args.packs),
     )
     serialize_write_plan(plan, out)
-    print(f"workspace activation plan: {out}")
-    print(summarize_write_plan(plan))
+    print("workspace activation plan: WORKSPACE_PLAN")
+    print(
+        _redacted_recommendation_plan_summary(
+            plan,
+            runtime_paths,
+            args.workspace_root,
+            plan_path=out,
+        )
+    )
     return 0
 
 
@@ -493,7 +501,14 @@ def _handle_recommend_activate(args: argparse.Namespace) -> int:
     )
     if not args.apply:
         print("dry-run workspace activation; no external files written")
-        print(summarize_write_plan(plan))
+        print(
+            _redacted_recommendation_plan_summary(
+                plan,
+                runtime_paths,
+                args.workspace_root,
+                plan_path=Path(args.plan),
+            )
+        )
         return 0
     print(f"apply status: {result.status}")
     if result.message:
@@ -522,7 +537,7 @@ def _handle_recommend_record_selection(args: argparse.Namespace) -> int:
         outcome="activated",
     )
     path = append_selection_event(runtime_paths, event)
-    print(f"selection event: {path}")
+    print(f"selection event: {_redacted_runtime_path(path, runtime_paths)}")
     print(
         "recorded selection: "
         f"{event.scenario_label}; packs={', '.join(event.selected_pack_ids)}; "
@@ -538,10 +553,58 @@ def _handle_recommend_learn(args: argparse.Namespace) -> int:
     if not args.apply:
         print("learned reference preview:")
         print(reference.rstrip())
-        print(f"path: {path}")
+        print(f"path: {_redacted_runtime_path(path, runtime_paths)}")
         return 0
-    print(f"learned reference: applied {path}")
+    print(f"learned reference: applied {_redacted_runtime_path(path, runtime_paths)}")
     return 0
+
+
+def _redacted_recommendation_plan_summary(
+    plan: WritePlan,
+    runtime_paths: RuntimePaths,
+    workspace_root: str | Path,
+    *,
+    plan_path: str | Path | None = None,
+) -> str:
+    replacements: list[tuple[Path, str]] = [
+        (Path(workspace_root), "WORKSPACE_ROOT"),
+        (runtime_paths.root, "RUNTIME_ROOT"),
+    ]
+    if plan_path is not None:
+        replacements.append((Path(plan_path), "WORKSPACE_PLAN"))
+    return _redact_local_paths(summarize_write_plan(plan), replacements)
+
+
+def _redacted_runtime_path(path: str | Path, runtime_paths: RuntimePaths) -> str:
+    return _redact_local_paths(str(path), ((runtime_paths.root, "RUNTIME_ROOT"),))
+
+
+def _redact_local_paths(text: str, replacements: Iterable[tuple[Path, str]]) -> str:
+    redacted = text
+    path_replacements: list[tuple[str, str]] = []
+    for path, replacement in replacements:
+        for variant in _path_variants(path):
+            path_replacements.append((variant, replacement))
+    for variant, replacement in sorted(
+        path_replacements,
+        key=lambda item: len(item[0]),
+        reverse=True,
+    ):
+        redacted = redacted.replace(variant, replacement)
+    return redacted.replace("\\", "/")
+
+
+def _path_variants(path: Path) -> tuple[str, ...]:
+    candidates = (
+        path,
+        path.expanduser(),
+        path.expanduser().resolve(strict=False),
+    )
+    variants: set[str] = set()
+    for candidate in candidates:
+        variants.add(str(candidate))
+        variants.add(candidate.as_posix())
+    return tuple(variant for variant in variants if variant)
 
 
 def _scan_from_args(

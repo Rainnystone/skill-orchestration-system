@@ -53,4 +53,7 @@ recommendation results.
 The recommendation flow is local and reviewable. It does not write global
 skills, does not use hooks, and does not persist raw prompts, file contents,
 model messages, account identifiers, or broad private absolute paths. Accepted
-selection records store only a hashed workspace identifier.
+selection records store only a hashed workspace identifier. Recommendation
+command output redacts local absolute paths with placeholders such as
+`WORKSPACE_ROOT`, `RUNTIME_ROOT`, and `WORKSPACE_PLAN`. Durable scenario labels
+are derived from scenario tags rather than free-form prompt text.

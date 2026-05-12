@@ -279,6 +279,10 @@ This recommendation flow does not write global skills, does not use hooks, and
 does not store raw prompts, file contents, model messages, account identifiers,
 or broad private absolute paths. The stored workspace identifier is a hash, so
 review logs remain auditable without exposing the original workspace path.
+Recommendation command output uses placeholders such as `WORKSPACE_ROOT`,
+`RUNTIME_ROOT`, and `WORKSPACE_PLAN` instead of printing local absolute paths.
+Durable scenario labels are tag-derived display labels, not free-form prompt
+logs.
 
 ## A Safe First Workflow
 

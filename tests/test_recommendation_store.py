@@ -12,7 +12,7 @@ def _selection_event(**overrides: object) -> recommendation_store.SelectionEvent
         "schema_version": 1,
         "created_at": "2026-05-12T10:00:00+00:00",
         "workspace_id": "sha256:1234",
-        "scenario_label": "workspace docs planning",
+        "scenario_label": "docs planning",
         "scenario_tags": ("docs", "planning"),
         "selected_pack_ids": ("docs",),
         "selected_skill_names": ("documents",),
@@ -84,6 +84,13 @@ def test_append_load_round_trip_uses_compact_schema_without_forbidden_fields(tmp
         ({"scenario_label": r"C:\Users\private\notes"}, "unsafe scenario_label"),
         ({"scenario_label": "workspace\ndocs"}, "unsafe scenario_label"),
         ({"scenario_label": "x" * 81}, "unsafe scenario_label"),
+        (
+            {
+                "scenario_label": "please summarize secret board deck",
+                "scenario_tags": ("docs", "deck"),
+            },
+            "unsafe scenario_label",
+        ),
         ({"scenario_tags": ("docs", "")}, "unsafe scenario_tag"),
         ({"scenario_tags": ("docs", "private/path")}, "unsafe scenario_tag"),
         ({"selected_pack_ids": ("docs", "docs/private")}, "unsafe selected_pack_id"),
@@ -115,7 +122,7 @@ def test_invalid_jsonl_lines_are_ignored_and_preserved(tmp_path: Path):
             "created_at": "2026-05-12T10:00:00+00:00",
             "workspace_id": "sha256:1234",
             "scenario_label": "apify crawler",
-            "scenario_tags": ["apify"],
+            "scenario_tags": ["apify", "crawler"],
             "selected_pack_ids": ["apify"],
             "selected_skill_names": ["crawl-site"],
             "manifest_fingerprint": "sha256:abcd",
@@ -349,7 +356,7 @@ def test_below_threshold_returns_empty_reference(tmp_path: Path):
     runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
     event = _selection_event(
         scenario_label="apify crawler",
-        scenario_tags=("apify",),
+        scenario_tags=("apify", "crawler"),
         selected_pack_ids=("apify",),
         selected_skill_names=("crawl-site",),
     )
