@@ -27,8 +27,10 @@ from sos.recommendation_store import (
     SelectionEvent,
     append_selection_event,
     build_learned_reference,
+    canonicalize_scenario_tags,
     learned_reference_path,
     load_selection_events,
+    scenario_label_from_tags,
     workspace_id_for_path,
     write_learned_reference,
 )
@@ -524,6 +526,9 @@ def _handle_recommend_record_selection(args: argparse.Namespace) -> int:
     selected_skill_names = _csv_tuple(args.skills)
     if not selected_skill_names:
         raise ValueError("--skills must include at least one value")
+    scenario_tags = _csv_tuple(args.scenario_tags)
+    _validate_scenario_label_argument(args.scenario_label, scenario_tags)
+    scenario_tags = canonicalize_scenario_tags(scenario_tags)
     selected_pack_ids, selected_skill_names = _validate_recommendation_selection(
         runtime_paths,
         selected_pack_ids,
@@ -533,8 +538,8 @@ def _handle_recommend_record_selection(args: argparse.Namespace) -> int:
         schema_version=1,
         created_at=_utc_now_isoformat(),
         workspace_id=workspace_id_for_path(args.workspace_root),
-        scenario_label=args.scenario_label,
-        scenario_tags=_csv_tuple(args.scenario_tags),
+        scenario_label=scenario_label_from_tags(scenario_tags),
+        scenario_tags=scenario_tags,
         selected_pack_ids=selected_pack_ids,
         selected_skill_names=selected_skill_names,
         manifest_fingerprint=args.manifest_fingerprint,
@@ -607,10 +612,24 @@ def _validate_recommendation_selection(
     selected_skill_set = set(selected_skill_names)
     canonical_skill_names: list[str] = []
     for manifest in selected_manifests:
+        if not any(skill.name in selected_skill_set for skill in manifest.skills):
+            raise ValueError(f"selected pack has no selected skills: {manifest.id}")
         for skill in manifest.skills:
             if skill.name in selected_skill_set and skill.name not in canonical_skill_names:
                 canonical_skill_names.append(skill.name)
     return canonical_pack_ids, tuple(canonical_skill_names)
+
+
+def _validate_scenario_label_argument(
+    scenario_label: str,
+    scenario_tags: tuple[str, ...],
+) -> None:
+    accepted_labels = {
+        " ".join(dict.fromkeys(scenario_tags)),
+        scenario_label_from_tags(canonicalize_scenario_tags(scenario_tags)),
+    }
+    if scenario_label.strip() not in accepted_labels:
+        raise ValueError(f"unsafe scenario_label: {scenario_label}")
 
 
 def _redacted_runtime_path(path: str | Path, runtime_paths: RuntimePaths) -> str:

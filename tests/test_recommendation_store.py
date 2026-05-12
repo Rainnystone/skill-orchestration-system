@@ -292,6 +292,37 @@ def test_learned_reference_canonicalizes_pack_order_for_counts():
     assert "Evidence: 10 accepted selections" in reference
 
 
+def test_learned_reference_canonicalizes_tag_order_for_counts():
+    events: list[recommendation_store.SelectionEvent] = []
+    for index in range(5):
+        events.append(
+            _selection_event(
+                created_at=f"2026-05-12T10:00:0{index}+00:00",
+                scenario_label="docs browser",
+                scenario_tags=("docs", "browser"),
+                selected_pack_ids=("browser", "docs"),
+                selected_skill_names=("open-browser", "documents"),
+            )
+        )
+        events.append(
+            _selection_event(
+                created_at=f"2026-05-12T10:01:0{index}+00:00",
+                scenario_label="browser docs",
+                scenario_tags=("browser", "docs"),
+                selected_pack_ids=("docs", "browser"),
+                selected_skill_names=("documents", "open-browser"),
+            )
+        )
+
+    reference = recommendation_store.build_learned_reference(events)
+
+    assert reference != recommendation_store.ASAHINA_EMPTY_REFERENCE
+    assert "Scenario: browser docs" in reference
+    assert "Scenario tags: browser, docs" in reference
+    assert "Prefer recommending: browser, docs" in reference
+    assert "Evidence: 10 accepted selections" in reference
+
+
 def test_learned_reference_does_not_merge_events_from_different_workspaces(tmp_path: Path):
     runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
     path = recommendation_store.selection_events_path(runtime_paths)

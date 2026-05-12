@@ -113,7 +113,8 @@ def build_learned_reference(events: Iterable[SelectionEvent]) -> str:
 
     lines = ["## Learned Recommendation Hints", ""]
     for event, count in eligible:
-        workspace_id, scenario_label, scenario_tags, selected_pack_ids = event
+        workspace_id, scenario_tags, selected_pack_ids = event
+        scenario_label = _scenario_label_from_tags(scenario_tags)
         prefer_recommending = ", ".join(selected_pack_ids)
         lines.extend(
             (
@@ -212,20 +213,29 @@ def _tuple_of_strings(value: Any) -> tuple[str, ...] | None:
 
 def _count_user_accepted_activation_events(
     events: Iterable[SelectionEvent],
-) -> dict[tuple[str, str, tuple[str, ...], tuple[str, ...]], int]:
-    counts: dict[tuple[str, str, tuple[str, ...], tuple[str, ...]], int] = {}
+) -> dict[tuple[str, tuple[str, ...], tuple[str, ...]], int]:
+    counts: dict[tuple[str, tuple[str, ...], tuple[str, ...]], int] = {}
     for event in events:
         if event.selection_source != "user_accepted" or event.outcome != "activated":
             continue
         selected_pack_ids = tuple(sorted(set(event.selected_pack_ids)))
+        scenario_tags = _canonical_scenario_tags(event.scenario_tags)
         key = (
             event.workspace_id,
-            event.scenario_label,
-            tuple(sorted(set(event.scenario_tags))),
+            scenario_tags,
             selected_pack_ids,
         )
         counts[key] = counts.get(key, 0) + 1
     return counts
+
+
+def canonicalize_scenario_tags(scenario_tags: tuple[str, ...]) -> tuple[str, ...]:
+    _validate_identifier_values(scenario_tags, "scenario_tag")
+    return _canonical_scenario_tags(scenario_tags)
+
+
+def scenario_label_from_tags(scenario_tags: tuple[str, ...]) -> str:
+    return _scenario_label_from_tags(_canonical_scenario_tags(scenario_tags))
 
 
 def _validate_selection_event(event: SelectionEvent) -> None:
@@ -249,6 +259,14 @@ def _validate_scenario_label(value: str, scenario_tags: tuple[str, ...]) -> None
     canonical_label = " ".join(dict.fromkeys(scenario_tags))
     if value.strip() != canonical_label:
         raise ValueError(f"unsafe scenario_label: {value}")
+
+
+def _canonical_scenario_tags(scenario_tags: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(sorted(set(scenario_tags)))
+
+
+def _scenario_label_from_tags(scenario_tags: tuple[str, ...]) -> str:
+    return " ".join(scenario_tags)
 
 
 def _validate_identifier_values(values: tuple[str, ...], label: str) -> None:

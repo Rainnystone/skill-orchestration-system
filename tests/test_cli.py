@@ -983,6 +983,38 @@ def test_recommend_record_selection_rejects_unknown_runtime_pack_or_skill(
     assert not selection_events_path(runtime_paths).exists()
 
 
+def test_recommend_record_selection_rejects_pack_without_selected_skill(
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_two_runtime_packs(tmp_path / ".sos")
+
+    with pytest.raises(ValueError, match="selected pack has no selected skills"):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                "docs browser",
+                "--scenario-tags",
+                "docs,browser",
+                "--packs",
+                "browser,docs",
+                "--skills",
+                "documents",
+                "--manifest-fingerprint",
+                "sha256:docs-browser",
+            ]
+        )
+
+    assert not selection_events_path(runtime_paths).exists()
+
+
 def test_recommend_learn_preview_does_not_write_reference(capsys, tmp_path: Path):
     runtime_paths, _ = _write_runtime_pack(
         tmp_path / ".sos",
@@ -1724,6 +1756,52 @@ def _write_runtime_pack(
         ),
     )
     return runtime_paths, manifest
+
+
+def _write_two_runtime_packs(runtime_root: Path) -> tuple[RuntimePaths, tuple[PackManifest, ...]]:
+    runtime_paths, docs_manifest = _write_runtime_pack(
+        runtime_root,
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    browser_source = _write_skill(
+        runtime_root / "sources",
+        "open-browser",
+        "# Browser skill\n",
+    )
+    browser_vault = _write_skill(
+        runtime_paths.vault / "browser",
+        "open-browser",
+        "# Browser skill\n",
+    )
+    browser_manifest = PackManifest(
+        id="browser",
+        display_name="Browser",
+        description="Open pages, inspect web apps, and test browser flows.",
+        pointer_skill="sos-browser",
+        aliases=("browser",),
+        sync_policy="clean-auto",
+        vault_root=runtime_paths.vault / "browser",
+        skills=(
+            SkillEntry(
+                name="open-browser",
+                description="Navigate and inspect browser pages.",
+                source_path=browser_source,
+                vault_path=browser_vault,
+                origin="codex",
+            ),
+        ),
+    )
+    save_pack_manifest(runtime_paths.packs / "browser.toml", browser_manifest)
+    save_registry(
+        runtime_paths.state / "registry.toml",
+        Registry(
+            packs=(docs_manifest, browser_manifest),
+            active_pointers=("sos-haruhi", "sos-docs", "sos-browser"),
+        ),
+    )
+    return runtime_paths, (docs_manifest, browser_manifest)
 
 
 def _write_config_and_vault(tmp_path: Path) -> tuple[Path, Path]:
