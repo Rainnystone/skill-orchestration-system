@@ -252,3 +252,81 @@ def test_detect_prepends_repo_src_to_existing_pythonpath(tmp_path, monkeypatch):
     assert result["env_updates"]["PYTHONPATH"] == (
         f"{(repo / 'src').resolve()}{os.pathsep}existing/path"
     )
+
+
+def test_doctor_reports_user_level_claude_skill_root(tmp_path, monkeypatch):
+    """When ~/.claude/skills exists, doctor surfaces it."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "sos_doctor",
+        ".agents/skills/sos/scripts/sos_doctor.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    fake_home = tmp_path / "home"
+    fake_claude = fake_home / ".claude" / "skills"
+    fake_claude.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))  # Windows
+
+    result = module.detect(cwd=tmp_path, cli_finder=lambda _: None)
+    assert result["claude_skill_root"] == str(fake_claude.resolve())
+
+
+def test_doctor_falls_back_to_project_claude_skills(tmp_path, monkeypatch):
+    """When only <cwd>/.claude/skills exists, surface that."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "sos_doctor",
+        ".agents/skills/sos/scripts/sos_doctor.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    project_claude = tmp_path / ".claude" / "skills"
+    project_claude.mkdir(parents=True)
+    fake_home = tmp_path / "elsewhere"
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))
+
+    result = module.detect(cwd=tmp_path, cli_finder=lambda _: None)
+    assert result["claude_skill_root"] == str(project_claude.resolve())
+
+
+def test_doctor_returns_none_when_no_claude_root(tmp_path, monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "sos_doctor",
+        ".agents/skills/sos/scripts/sos_doctor.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    fake_home = tmp_path / "elsewhere"
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))
+
+    result = module.detect(cwd=tmp_path, cli_finder=lambda _: None)
+    assert result["claude_skill_root"] is None
+
+
+def test_doctor_no_claude_lookup_returns_none(tmp_path, monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "sos_doctor",
+        ".agents/skills/sos/scripts/sos_doctor.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    fake_home = tmp_path / "home"
+    fake_claude = fake_home / ".claude" / "skills"
+    fake_claude.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))
+
+    result = module.detect(
+        cwd=tmp_path, cli_finder=lambda _: None, claude_lookup=False
+    )
+    assert result["claude_skill_root"] is None
