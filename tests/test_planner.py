@@ -326,6 +326,117 @@ def test_legacy_plan_without_host_loads_as_codex(tmp_path):
     assert loaded.host == "codex"
 
 
+def test_claude_plan_omits_codex_only_operations(tmp_path):
+    from sos.planner import build_pack_apply_plan
+    from sos.paths import RuntimePaths
+    from sos.propose import PackProposal
+    from sos.models import OperationKind
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    (skill_root / "demo").mkdir()
+    (skill_root / "demo" / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: demo\n---\nbody\n",
+        encoding="utf-8",
+    )
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+
+    proposals = (PackProposal(pack_id="demo", skill_names=("demo",), reason="test"),)
+    plan = build_pack_apply_plan(
+        runtime_paths, skill_root, codex_config_path, proposals, host="claude"
+    )
+
+    kinds = {op.kind for op in plan.operations}
+    assert OperationKind.BACKUP_CODEX_CONFIG not in kinds
+    assert OperationKind.DISABLE_CODEX_SKILL not in kinds
+    assert OperationKind.MOVE_TO_ARCHIVE in kinds
+    assert plan.host == "claude"
+
+
+def test_claude_move_to_archive_targets_dot_archive_under_skill_root(tmp_path):
+    from sos.planner import build_pack_apply_plan
+    from sos.paths import RuntimePaths
+    from sos.propose import PackProposal
+    from sos.models import OperationKind
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    (skill_root / "demo").mkdir()
+    (skill_root / "demo" / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: demo\n---\n", encoding="utf-8"
+    )
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+    proposals = (PackProposal(pack_id="demo", skill_names=("demo",), reason="test"),)
+
+    plan = build_pack_apply_plan(
+        runtime_paths, skill_root, codex_config_path, proposals, host="claude"
+    )
+
+    archive_ops = [op for op in plan.operations if op.kind == OperationKind.MOVE_TO_ARCHIVE]
+    assert len(archive_ops) == 1
+    op = archive_ops[0]
+    assert op.source == skill_root / "demo"
+    assert op.target == skill_root / ".sos-archive" / "demo" / "demo"
+    assert op.metadata["pack_id"] == "demo"
+    assert op.metadata["skill_name"] == "demo"
+    assert op.metadata["host"] == "claude"
+
+
+def test_codex_plan_unchanged_when_host_defaults(tmp_path):
+    # Regression: existing callers that omit `host` get the prior codex behavior.
+    from sos.planner import build_pack_apply_plan
+    from sos.paths import RuntimePaths
+    from sos.propose import PackProposal
+    from sos.models import OperationKind
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    (skill_root / "demo").mkdir()
+    (skill_root / "demo" / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: demo\n---\n", encoding="utf-8"
+    )
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+    proposals = (PackProposal(pack_id="demo", skill_names=("demo",), reason="test"),)
+
+    plan = build_pack_apply_plan(runtime_paths, skill_root, codex_config_path, proposals)
+    kinds = {op.kind for op in plan.operations}
+    assert OperationKind.BACKUP_CODEX_CONFIG in kinds
+    assert OperationKind.DISABLE_CODEX_SKILL in kinds
+    assert OperationKind.MOVE_TO_ARCHIVE not in kinds
+    assert plan.host == "codex"
+
+
+def test_claude_plan_id_differs_from_codex_plan_id(tmp_path):
+    from sos.planner import build_pack_apply_plan
+    from sos.paths import RuntimePaths
+    from sos.propose import PackProposal
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    (skill_root / "demo").mkdir()
+    (skill_root / "demo" / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: demo\n---\n", encoding="utf-8"
+    )
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+    proposals = (PackProposal(pack_id="demo", skill_names=("demo",), reason="test"),)
+
+    codex_plan = build_pack_apply_plan(
+        runtime_paths, skill_root, codex_config_path, proposals, host="codex"
+    )
+    claude_plan = build_pack_apply_plan(
+        runtime_paths, skill_root, codex_config_path, proposals, host="claude"
+    )
+    assert codex_plan.plan_id != claude_plan.plan_id
+
+
 def test_plan_preserves_multi_pack_and_multi_skill_operation_order(tmp_path: Path):
     active_root = tmp_path / "active"
     _write_skill(active_root, "apify-actor-development")
