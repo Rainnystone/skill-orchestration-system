@@ -100,7 +100,7 @@ def build_learned_reference(events: Iterable[SelectionEvent]) -> str:
     best_key: tuple[str, tuple[str, ...]] | None = None
     best_count = 0
 
-    for event, count in _count_accepted_activation_events(events).items():
+    for event, count in _count_user_accepted_activation_events(events).items():
         if count > best_count or (count == best_count and best_key is not None and event < best_key):
             best_key = event
             best_count = count
@@ -198,12 +198,12 @@ def _tuple_of_strings(value: Any) -> tuple[str, ...] | None:
     return tuple(value)
 
 
-def _count_accepted_activation_events(
+def _count_user_accepted_activation_events(
     events: Iterable[SelectionEvent],
 ) -> dict[tuple[str, tuple[str, ...]], int]:
     counts: dict[tuple[str, tuple[str, ...]], int] = {}
     for event in events:
-        if event.selection_source != "activated" or event.outcome != "accepted":
+        if event.selection_source != "user_accepted" or event.outcome != "activated":
             continue
         key = (event.scenario_label, event.selected_pack_ids)
         counts[key] = counts.get(key, 0) + 1
