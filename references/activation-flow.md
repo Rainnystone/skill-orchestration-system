@@ -19,3 +19,38 @@ write boundary.
 Deletion is separate from activation. Source folders are preserved by default.
 Source deletion requires `sos apply --plan <plan.toml> --apply --delete-source
 --confirm-delete-source <pack-id>` and is validated against the plan.
+
+## Workspace Recommendation Activation
+
+SOS also supports a workspace-only recommendation path. This flow is for
+activating already-managed packs inside one workspace without changing the
+global skill root.
+
+1. `sos recommend context --workspace-root <workspace> --runtime-root <.sos>`
+   inspects workspace signals, lists available runtime packs, reports whether a
+   learned reference is present, and prints recommendations without writing.
+2. `sos recommend activation-plan --workspace-root <workspace> --runtime-root <.sos> --packs <ids> --out <workspace-plan.toml>`
+   writes an auditable workspace activation plan only.
+3. `sos recommend activate --plan <workspace-plan.toml> --runtime-root <.sos>`
+   previews the workspace activation plan without writing.
+4. `sos recommend activate --plan <workspace-plan.toml> --runtime-root <.sos> --apply`
+   writes workspace-local `.agents/skills/sos-nagato/SKILL.md`,
+   `.agents/skills/sos-asahina/SKILL.md`, one `.agents/skills/sos-<pack>/SKILL.md`
+   for each selected pack, and the learned-reference stub at
+   `state/recommendations/asahina-reference.md`.
+5. `sos recommend record-selection --runtime-root <.sos> --workspace-root <workspace> ...`
+   appends accepted selection records to
+   `state/recommendations/selection-events.jsonl`.
+6. `sos recommend learn --runtime-root <.sos>` previews the learned reference,
+   and `sos recommend learn --runtime-root <.sos> --apply` writes it to
+   `state/recommendations/asahina-reference.md`.
+
+`sos-nagato` is the workspace recommender. It reads the workspace and the local
+learned reference, then suggests relevant packs. `sos-asahina` does not do
+implicit recommendation work; it is the explicit organizer for approved
+recommendation results.
+
+The recommendation flow is local and reviewable. It does not write global
+skills, does not use hooks, and does not persist raw prompts, file contents,
+model messages, account identifiers, or broad private absolute paths. Accepted
+selection records store only a hashed workspace identifier.

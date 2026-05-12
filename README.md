@@ -224,6 +224,62 @@ managed sources, vault drift, missing or stale generated pointers, and managed
 source skills that were unexpectedly re-enabled. It does not apply repairs; it
 only tells you what deserves a new scan, proposal, or reviewed plan.
 
+### Workspace Recommendation Path
+
+SOS also has a workspace-level recommendation flow for "what should this
+workspace enable right now?" without turning that choice into a global skill
+change.
+
+- `sos-nagato` is the workspace recommender. It inspects the current workspace,
+  reads the local learned reference when it exists, and suggests relevant
+  managed packs.
+- `sos-asahina` is not an automatic recommender. Use it only when you want to
+  explicitly organize approved recommendation outcomes into a learned reference.
+
+The flow stays local and reviewable:
+
+1. Inspect the workspace without writing anything:
+
+   ```bash
+   sos recommend context --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT
+   ```
+
+2. Write a reviewable workspace activation plan:
+
+   ```bash
+   sos recommend activation-plan --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --packs docs,browser --out WORKSPACE_PLAN
+   ```
+
+3. Preview the plan:
+
+   ```bash
+   sos recommend activate --plan WORKSPACE_PLAN --runtime-root RUNTIME_ROOT
+   ```
+
+4. Apply only after review:
+
+   ```bash
+   sos recommend activate --plan WORKSPACE_PLAN --runtime-root RUNTIME_ROOT --apply
+   ```
+
+When applied, SOS writes workspace-only skills into
+`WORKSPACE_ROOT/.agents/skills/`:
+
+- `sos-nagato/SKILL.md`
+- `sos-asahina/SKILL.md`
+- one `sos-<pack>/SKILL.md` pointer for each selected pack
+
+Recommendation state is stored under
+`RUNTIME_ROOT/state/recommendations/`:
+
+- `selection-events.jsonl` stores accepted selection records
+- `asahina-reference.md` stores the learned reference used by `sos-nagato`
+
+This recommendation flow does not write global skills, does not use hooks, and
+does not store raw prompts, file contents, model messages, account identifiers,
+or broad private absolute paths. The stored workspace identifier is a hash, so
+review logs remain auditable without exposing the original workspace path.
+
 ## A Safe First Workflow
 
 The exact paths depend on your machine. In the examples below, replace:
