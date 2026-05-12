@@ -45,6 +45,7 @@ def test_render_nagato_skill_mentions_context_reference_and_hooks(tmp_path: Path
     assert str(learned_reference) in rendered
     assert "Read the learned reference path" in rendered
     assert "workspace-only" in rendered
+    assert "Keep context small" in rendered
     assert "Do not use hooks" in rendered
     assert len(rendered.splitlines()) < 90
 
