@@ -104,3 +104,17 @@ def test_validate_archive_operations_rejects_plugin_cache_source(tmp_path):
     )
     with pytest.raises(ValueError, match="plugin cache"):
         _validate_archive_operations(plan, active_root, (manifest,))
+
+
+def test_validate_archive_operations_rejects_wrong_host_metadata(tmp_path):
+    active_root = tmp_path / "skills"
+    archive_target = active_root / ".sos-archive" / "demo" / "demo-skill"
+    op = WriteOperation(
+        OperationKind.MOVE_TO_ARCHIVE,
+        source=active_root / "demo-skill",
+        target=archive_target,
+        metadata={"pack_id": "demo", "skill_name": "demo-skill", "host": "codex"},
+    )
+    plan = _make_plan((op,))
+    with pytest.raises(ValueError, match="host=claude"):
+        _validate_archive_operations(plan, active_root, (_make_manifest(active_root),))

@@ -553,8 +553,6 @@ def _validate_archive_operations(
         _ensure_under(target, archive_root, "archive target path")
         if _is_plugin_cache_path(source):
             raise ValueError(f"refusing to archive source path inside plugin cache: {source}")
-        if _is_plugin_cache_path(target):
-            raise ValueError(f"refusing to archive into plugin cache: {target}")
         if operation.metadata.get("host") != "claude":
             raise ValueError("archive operation metadata must declare host=claude")
     return operations
