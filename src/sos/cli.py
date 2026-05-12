@@ -353,10 +353,11 @@ def _handle_backup_list(args: argparse.Namespace) -> int:
 def _handle_restore(args: argparse.Namespace) -> int:
     runtime_paths = RuntimePaths.from_root(args.runtime_root)
     codex_config_path, vault_root = _restore_targets(runtime_paths, args.backup_id)
+    codex_display = str(codex_config_path) if codex_config_path is not None else "(claude — no codex config)"
     if not args.apply:
         print("dry-run restore; no external files written")
         print(f"backup_id: {args.backup_id}")
-        print(f"codex_config_path: {codex_config_path}")
+        print(f"codex_config_path: {codex_display}")
         print(f"vault_root: {vault_root}")
         return 0
     record = restore_backup(
@@ -367,7 +368,7 @@ def _handle_restore(args: argparse.Namespace) -> int:
         apply=True,
     )
     print(f"restored: {record.backup_id}")
-    print(f"codex_config_path: {codex_config_path}")
+    print(f"codex_config_path: {codex_display}")
     print(f"vault_root: {vault_root}")
     return 0
 
@@ -468,15 +469,21 @@ def _validate_delete_source_args(args: argparse.Namespace) -> None:
         raise ValueError("--delete-source requires --confirm-delete-source")
 
 
-def _restore_targets(runtime_paths: RuntimePaths, backup_id: str) -> tuple[Path, Path]:
+def _restore_targets(runtime_paths: RuntimePaths, backup_id: str) -> tuple[Path | None, Path]:
     _safe_component(backup_id, "backup_id")
     metadata_path = runtime_paths.backups / backup_id / "metadata.toml"
     metadata = read_toml(metadata_path)
-    if "codex_config_path" not in metadata or "vault_root" not in metadata:
-        raise ValueError(
-            "backup restore metadata must include codex_config_path and vault_root"
-        )
-    return Path(str(metadata["codex_config_path"])), Path(str(metadata["vault_root"]))
+    if "vault_root" not in metadata:
+        raise ValueError("backup restore metadata must include vault_root")
+    host = str(metadata.get("host", "codex"))
+    vault_root = Path(str(metadata["vault_root"]))
+    if host == "codex":
+        if "codex_config_path" not in metadata:
+            raise ValueError("codex backup restore metadata must include codex_config_path")
+        codex_config_path = Path(str(metadata["codex_config_path"]))
+        return codex_config_path, vault_root
+    # claude: no codex_config_path
+    return None, vault_root
 
 
 def _annotate_backup_metadata(

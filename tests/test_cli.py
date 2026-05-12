@@ -785,7 +785,7 @@ def test_restore_refuses_metadata_without_explicit_targets_before_writing(
     monkeypatch.setattr(Path, "home", lambda: fake_home)
 
     for apply_args in ([], ["--apply"]):
-        with pytest.raises(ValueError, match="codex_config_path.*vault_root"):
+        with pytest.raises(ValueError, match="vault_root"):
             main(
                 [
                     "restore",
