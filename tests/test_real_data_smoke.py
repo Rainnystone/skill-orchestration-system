@@ -241,6 +241,58 @@ def test_pack_composition_reference_matches_implemented_proposal_scope() -> None
         assert expected_text in reference
 
 
+def test_claude_apply_smoke_end_to_end(tmp_path: Path) -> None:
+    """Smoke: scan -> propose -> plan -> apply -> verify archive + pointers."""
+    import shutil
+    from sos.scanner import scan_skill_roots
+    from sos.propose import propose_builtin_packs
+    from sos.planner import build_pack_apply_plan, serialize_write_plan, load_write_plan
+    from sos.apply import apply_write_plan
+    from sos.paths import RuntimePaths
+
+    # Copy fixtures into a writable location (apply mutates the skill root).
+    skill_root = tmp_path / "skills"
+    shutil.copytree("tests/fixtures/claude/skills", skill_root)
+
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+
+    scanned = scan_skill_roots((skill_root,))
+    proposals = propose_builtin_packs(scanned)
+    assert len(proposals) >= 2  # apify + obsidian
+
+    plan = build_pack_apply_plan(
+        runtime_paths, skill_root, codex_config_path, proposals, host="claude"
+    )
+    plan_path = tmp_path / "plan.toml"
+    serialize_write_plan(plan, plan_path)
+    plan = load_write_plan(plan_path)
+    assert plan.host == "claude"
+
+    result = apply_write_plan(
+        plan,
+        runtime_paths,
+        codex_config_path,
+        skill_root,
+        apply=True,
+        host="claude",
+    )
+    assert result.status == "applied"
+
+    # Originals moved
+    for proposal in proposals:
+        for name in proposal.skill_names:
+            assert not (skill_root / name).exists()
+            archived = skill_root / ".sos-archive" / proposal.pack_id / name
+            assert (archived / "SKILL.md").is_file()
+
+    # Pointers written
+    assert (skill_root / "sos-haruhi" / "SKILL.md").is_file()
+    for proposal in proposals:
+        assert (skill_root / f"sos-{proposal.pack_id}" / "SKILL.md").is_file()
+
+
 def _disabled_config_paths(codex_config: Path) -> set[str]:
     entries = read_toml(codex_config)["skills"]["config"]
     return {str(entry["path"]) for entry in entries if entry.get("enabled") is False}
