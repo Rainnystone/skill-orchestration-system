@@ -31,9 +31,9 @@ global skill root.
    learned reference is present, and prints recommendations without writing.
 2. `sos recommend activation-plan --workspace-root <workspace> --runtime-root <.sos> --packs <ids> --out <workspace-plan.toml>`
    writes an auditable workspace activation plan only.
-3. `sos recommend activate --plan <workspace-plan.toml> --runtime-root <.sos>`
+3. `sos recommend activate --plan <workspace-plan.toml> --workspace-root <workspace> --runtime-root <.sos>`
    previews the workspace activation plan without writing.
-4. `sos recommend activate --plan <workspace-plan.toml> --runtime-root <.sos> --apply`
+4. `sos recommend activate --plan <workspace-plan.toml> --workspace-root <workspace> --runtime-root <.sos> --apply`
    writes workspace-local `.agents/skills/sos-nagato/SKILL.md`,
    `.agents/skills/sos-asahina/SKILL.md`, one `.agents/skills/sos-<pack>/SKILL.md`
    for each selected pack, and the learned-reference stub at

@@ -253,13 +253,13 @@ The flow stays local and reviewable:
 3. Preview the plan:
 
    ```bash
-   sos recommend activate --plan WORKSPACE_PLAN --runtime-root RUNTIME_ROOT
+   sos recommend activate --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT
    ```
 
 4. Apply only after review:
 
    ```bash
-   sos recommend activate --plan WORKSPACE_PLAN --runtime-root RUNTIME_ROOT --apply
+   sos recommend activate --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --apply
    ```
 
 When applied, SOS writes workspace-only skills into

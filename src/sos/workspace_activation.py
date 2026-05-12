@@ -72,9 +72,14 @@ def apply_workspace_activation_plan(
     plan: WritePlan,
     runtime_paths: RuntimePaths,
     *,
+    workspace_root: str | Path,
     apply: bool,
 ) -> ApplyResult:
-    validated = _validate_workspace_activation_plan(plan, runtime_paths)
+    validated = _validate_workspace_activation_plan(
+        plan,
+        runtime_paths,
+        Path(workspace_root),
+    )
     if not apply:
         return ApplyResult(status="planned", operations=plan.operations)
 
@@ -168,6 +173,7 @@ def _pointer_operation(workspace_skill_root: Path, manifest: PackManifest) -> Wr
 def _validate_workspace_activation_plan(
     plan: WritePlan,
     runtime_paths: RuntimePaths,
+    expected_workspace_root: Path,
 ) -> _ValidatedWorkspacePlan:
     if not plan.requires_apply:
         raise ValueError("workspace activation plan must require apply")
@@ -179,6 +185,10 @@ def _validate_workspace_activation_plan(
     _validate_operation_kinds(operations)
     workspace_skill_root = _workspace_skill_root_from_operation(operations[0])
     workspace_root = workspace_skill_root.parent.parent
+    _validate_workspace_root_anchor(workspace_root, expected_workspace_root)
+    expected_plan_id = _plan_id(runtime_paths, workspace_root, plan.pack_ids)
+    if plan.plan_id != expected_plan_id:
+        raise ValueError("workspace activation plan id mismatch")
     manifests = _selected_manifests(runtime_paths, plan.pack_ids)
 
     nagato_target = _validate_workspace_skill_operation(
@@ -213,6 +223,18 @@ def _validate_workspace_activation_plan(
         manifests=manifests,
         learned_reference_target=learned_target,
     )
+
+
+def _validate_workspace_root_anchor(
+    plan_workspace_root: Path,
+    expected_workspace_root: Path,
+) -> None:
+    if _normalized_path(plan_workspace_root) != _normalized_path(expected_workspace_root):
+        raise ValueError("workspace activation plan workspace root does not match")
+
+
+def _normalized_path(path: Path) -> Path:
+    return path.resolve(strict=False)
 
 
 def _validate_operation_kinds(operations: tuple[WriteOperation, ...]) -> None:

@@ -6,7 +6,14 @@ from pathlib import Path
 import pytest
 
 from sos.manifest import save_pack_manifest, save_registry
-from sos.models import OperationKind, PackManifest, Registry, SkillEntry
+from sos.models import (
+    OperationKind,
+    PackManifest,
+    Registry,
+    SkillEntry,
+    WriteOperation,
+    WritePlan,
+)
 from sos.paths import RuntimePaths
 from sos.planner import load_write_plan, serialize_write_plan
 from sos.recommendation_store import (
@@ -69,6 +76,36 @@ def _setup_runtime_docs_pack(tmp_path: Path) -> tuple[RuntimePaths, PackManifest
     return runtime_paths, manifest
 
 
+def _retarget_workspace_plan(plan: WritePlan, workspace_skill_root: Path) -> WritePlan:
+    operations: list[WriteOperation] = []
+    for operation in plan.operations:
+        if operation.kind in {
+            OperationKind.WRITE_WORKSPACE_SKILL,
+            OperationKind.WRITE_POINTER,
+        }:
+            skill_name = operation.target.parent.name
+            metadata = dict(operation.metadata)
+            metadata["workspace_skill_root"] = str(workspace_skill_root)
+            operations.append(
+                WriteOperation(
+                    operation.kind,
+                    source=operation.source,
+                    target=workspace_skill_root / skill_name / "SKILL.md",
+                    metadata=metadata,
+                )
+            )
+        else:
+            operations.append(operation)
+    return WritePlan(
+        plan_id=plan.plan_id,
+        pack_ids=plan.pack_ids,
+        operations=tuple(operations),
+        requires_apply=plan.requires_apply,
+        delete_source_requested=plan.delete_source_requested,
+        second_confirmation=plan.second_confirmation,
+    )
+
+
 def test_workspace_activation_dry_run_does_not_create_workspace_or_recommendation_dirs(
     tmp_path: Path,
 ):
@@ -76,7 +113,12 @@ def test_workspace_activation_dry_run_does_not_create_workspace_or_recommendatio
     workspace_root = _workspace_root(tmp_path)
 
     plan = build_workspace_activation_plan(runtime_paths, workspace_root, ("docs",))
-    result = apply_workspace_activation_plan(plan, runtime_paths, apply=False)
+    result = apply_workspace_activation_plan(
+        plan,
+        runtime_paths,
+        workspace_root=workspace_root,
+        apply=False,
+    )
 
     assert plan.requires_apply is True
     assert plan.pack_ids == ("docs",)
@@ -92,7 +134,12 @@ def test_workspace_activation_apply_writes_workspace_skills_pointer_and_stub(
     workspace_root = _workspace_root(tmp_path)
 
     plan = build_workspace_activation_plan(runtime_paths, workspace_root, ("docs",))
-    result = apply_workspace_activation_plan(plan, runtime_paths, apply=True)
+    result = apply_workspace_activation_plan(
+        plan,
+        runtime_paths,
+        workspace_root=workspace_root,
+        apply=True,
+    )
 
     workspace_skill_root = workspace_root / ".agents" / "skills"
     assert result.status == "applied"
@@ -111,7 +158,12 @@ def test_recommend_workspace_activation_redacts_absolute_paths_in_workspace_skil
     workspace_root = _workspace_root(tmp_path)
 
     plan = build_workspace_activation_plan(runtime_paths, workspace_root, ("docs",))
-    result = apply_workspace_activation_plan(plan, runtime_paths, apply=True)
+    result = apply_workspace_activation_plan(
+        plan,
+        runtime_paths,
+        workspace_root=workspace_root,
+        apply=True,
+    )
 
     workspace_skill_root = workspace_root / ".agents" / "skills"
     nagato_text = (workspace_skill_root / "sos-nagato" / "SKILL.md").read_text(
@@ -166,7 +218,12 @@ def test_workspace_activation_apply_rolls_back_on_asahina_render_failure(
 
     monkeypatch.setattr("sos.workspace_activation.render_asahina_skill", fail_asahina)
 
-    result = apply_workspace_activation_plan(plan, runtime_paths, apply=True)
+    result = apply_workspace_activation_plan(
+        plan,
+        runtime_paths,
+        workspace_root=workspace_root,
+        apply=True,
+    )
 
     assert result.status == "failed"
     assert result.message == "boom"
@@ -187,7 +244,12 @@ def test_workspace_activation_apply_removes_agents_skeleton_on_asahina_render_fa
 
     monkeypatch.setattr("sos.workspace_activation.render_asahina_skill", fail_asahina)
 
-    result = apply_workspace_activation_plan(plan, runtime_paths, apply=True)
+    result = apply_workspace_activation_plan(
+        plan,
+        runtime_paths,
+        workspace_root=workspace_root,
+        apply=True,
+    )
 
     assert result.status == "failed"
     assert result.message == "boom"
@@ -205,10 +267,41 @@ def test_workspace_activation_preserves_existing_learned_reference_content(
     learned_path.write_text("# Existing\n", encoding="utf-8")
     plan = build_workspace_activation_plan(runtime_paths, workspace_root, ("docs",))
 
-    result = apply_workspace_activation_plan(plan, runtime_paths, apply=True)
+    result = apply_workspace_activation_plan(
+        plan,
+        runtime_paths,
+        workspace_root=workspace_root,
+        apply=True,
+    )
 
     assert result.status == "applied"
     assert learned_path.read_text(encoding="utf-8") == "# Existing\n"
+
+
+def test_workspace_activation_rejects_tampered_workspace_root(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    workspace_root.mkdir()
+    tampered_workspace_root = tmp_path / "other-workspace"
+    tampered_workspace_root.mkdir()
+    tampered_skill_root = tampered_workspace_root / ".agents" / "skills"
+    plan = build_workspace_activation_plan(runtime_paths, workspace_root, ("docs",))
+    tampered_plan = _retarget_workspace_plan(plan, tampered_skill_root)
+
+    with pytest.raises(
+        ValueError,
+        match="workspace activation plan workspace root does not match",
+    ):
+        apply_workspace_activation_plan(
+            tampered_plan,
+            runtime_paths,
+            workspace_root=workspace_root,
+            apply=True,
+        )
+
+    assert not (tampered_workspace_root / ".agents").exists()
 
 
 def test_workspace_activation_plan_round_trips_with_new_operation_kinds(

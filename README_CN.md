@@ -213,13 +213,13 @@ sos changes --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --codex-config CODEX_
 3. 先 dry run 预览：
 
    ```bash
-   sos recommend activate --plan WORKSPACE_PLAN --runtime-root RUNTIME_ROOT
+   sos recommend activate --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT
    ```
 
 4. 确认后再真正应用：
 
    ```bash
-   sos recommend activate --plan WORKSPACE_PLAN --runtime-root RUNTIME_ROOT --apply
+   sos recommend activate --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --apply
    ```
 
 应用后，SOS 会把 workspace 专用 skills 写到 `WORKSPACE_ROOT/.agents/skills/`：
@@ -350,8 +350,8 @@ pack proposal 是确定性的。SOS 会优先看 Agent Skill 的 head metadata�
 | `sos changes --root <path> --runtime-root <path> --codex-config <path>` | 报告新增、缺失、变更、过期或意外启用的 skills 和 pointers。 | 否 |
 | `sos recommend context --workspace-root <path> --runtime-root <path>` | 查看当前 workspace 的推荐上下文。 | 否 |
 | `sos recommend activation-plan --workspace-root <path> --runtime-root <path> --packs <ids> --out <path>` | 写出 workspace 级激活计划。 | 只写计划文件 |
-| `sos recommend activate --plan <path> --runtime-root <path>` | 预览 workspace 激活计划。 | 否 |
-| `sos recommend activate --plan <path> --runtime-root <path> --apply` | 写入 workspace 专用 skills 和 learned reference stub。 | 是 |
+| `sos recommend activate --plan <path> --workspace-root <path> --runtime-root <path>` | 预览 workspace 激活计划。 | 否 |
+| `sos recommend activate --plan <path> --workspace-root <path> --runtime-root <path> --apply` | 写入 workspace 专用 skills 和 learned reference stub。 | 是 |
 | `sos recommend record-selection --runtime-root <path> --workspace-root <path> ...` | 记录一次被接受的 workspace 推荐选择。 | 是 |
 | `sos recommend learn --runtime-root <path>` | 预览 learned reference。 | 否 |
 | `sos recommend learn --runtime-root <path> --apply` | 写入 learned reference。 | 是 |

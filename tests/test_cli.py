@@ -404,6 +404,8 @@ def test_recommend_activation_plan_and_activate_apply(capsys, tmp_path: Path):
             str(plan_path),
             "--runtime-root",
             str(runtime_paths.root),
+            "--workspace-root",
+            str(workspace_root),
             "--apply",
         ]
     )
@@ -455,6 +457,8 @@ def test_recommend_activate_without_apply_is_dry_run(capsys, tmp_path: Path):
             str(plan_path),
             "--runtime-root",
             str(runtime_paths.root),
+            "--workspace-root",
+            str(workspace_root),
         ]
     )
 
@@ -463,6 +467,63 @@ def test_recommend_activate_without_apply_is_dry_run(capsys, tmp_path: Path):
     assert "dry-run workspace activation; no external files written" in captured.out
     assert not (workspace_root / ".agents").exists()
     assert not learned_reference_path(runtime_paths).exists()
+
+
+def test_recommend_activate_rejects_tampered_workspace_root(
+    capsys,
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    tampered_workspace_root = tmp_path / "other-workspace"
+    tampered_workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    plan_path = tmp_path / "workspace-activation-plan.toml"
+    plan_exit = main(
+        [
+            "recommend",
+            "activation-plan",
+            "--workspace-root",
+            str(workspace_root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--packs",
+            "docs",
+            "--out",
+            str(plan_path),
+        ]
+    )
+    assert plan_exit == 0
+    capsys.readouterr()
+    _retarget_workspace_activation_plan(
+        plan_path,
+        tampered_workspace_root / ".agents" / "skills",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="workspace activation plan workspace root does not match",
+    ):
+        main(
+            [
+                "recommend",
+                "activate",
+                "--plan",
+                str(plan_path),
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--apply",
+            ]
+        )
+
+    assert not (tampered_workspace_root / ".agents").exists()
 
 
 def test_recommend_record_selection_and_learn(capsys, tmp_path: Path):
@@ -1286,6 +1347,18 @@ def _write_cli_plan(
     )
     assert exit_code == 0
     return plan_path
+
+
+def _retarget_workspace_activation_plan(plan_path: Path, workspace_skill_root: Path) -> None:
+    data = read_toml(plan_path)
+    for operation in data["operations"]:
+        if operation["kind"] not in {"write_workspace_skill", "write_pointer"}:
+            continue
+        skill_name = Path(operation["target"]).parent.name
+        operation["target"] = str(workspace_skill_root / skill_name / "SKILL.md")
+        metadata = operation.setdefault("metadata", {})
+        metadata["workspace_skill_root"] = str(workspace_skill_root)
+    write_toml(plan_path, data)
 
 
 def _disabled_config_paths(codex_config: Path) -> set[str]:

@@ -170,6 +170,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     recommend_activate.add_argument("--plan", required=True)
     recommend_activate.add_argument("--runtime-root", required=True)
+    recommend_activate.add_argument("--workspace-root", required=True)
     recommend_activate.add_argument("--apply", action="store_true")
     recommend_activate.set_defaults(handler=_handle_recommend_activate)
 
@@ -487,6 +488,7 @@ def _handle_recommend_activate(args: argparse.Namespace) -> int:
     result = apply_workspace_activation_plan(
         plan,
         runtime_paths,
+        workspace_root=args.workspace_root,
         apply=bool(args.apply),
     )
     if not args.apply:
