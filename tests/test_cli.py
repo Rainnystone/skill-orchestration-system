@@ -1049,6 +1049,137 @@ def _write_backup_metadata(runtime_paths: RuntimePaths, backup_id: str) -> None:
     )
 
 
+def test_cli_plan_defaults_to_codex_and_requires_codex_config(tmp_path):
+    from sos.cli import main
+    from sos.planner import load_write_plan
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    (skill_root / "demo").mkdir()
+    (skill_root / "demo" / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: demo\n---\n", encoding="utf-8"
+    )
+    runtime_root = tmp_path / "runtime"
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+    plan_out = tmp_path / "plan.toml"
+
+    exit_code = main([
+        "plan",
+        "--root", str(skill_root),
+        "--runtime-root", str(runtime_root),
+        "--codex-config", str(codex_config_path),
+        "--out", str(plan_out),
+    ])
+    assert exit_code == 0
+
+    plan = load_write_plan(plan_out)
+    assert plan.host == "codex"
+
+
+def test_cli_plan_codex_without_codex_config_raises(tmp_path):
+    from sos.cli import main
+    import pytest
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    (skill_root / "demo").mkdir()
+    (skill_root / "demo" / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: demo\n---\n", encoding="utf-8"
+    )
+    runtime_root = tmp_path / "runtime"
+    plan_out = tmp_path / "plan.toml"
+
+    with pytest.raises(ValueError, match="codex-config"):
+        main([
+            "plan",
+            "--root", str(skill_root),
+            "--runtime-root", str(runtime_root),
+            "--out", str(plan_out),
+        ])
+
+
+def test_cli_plan_claude_without_codex_config(tmp_path):
+    from sos.cli import main
+    from sos.planner import load_write_plan
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    (skill_root / "demo").mkdir()
+    (skill_root / "demo" / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: demo\n---\n", encoding="utf-8"
+    )
+    runtime_root = tmp_path / "runtime"
+    plan_out = tmp_path / "plan.toml"
+
+    exit_code = main([
+        "plan",
+        "--host", "claude",
+        "--root", str(skill_root),
+        "--runtime-root", str(runtime_root),
+        "--out", str(plan_out),
+    ])
+    assert exit_code == 0
+    plan = load_write_plan(plan_out)
+    assert plan.host == "claude"
+
+
+def test_cli_plan_claude_with_codex_config_rejected(tmp_path):
+    from sos.cli import main
+    import pytest
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    (skill_root / "demo").mkdir()
+    (skill_root / "demo" / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: demo\n---\n", encoding="utf-8"
+    )
+    runtime_root = tmp_path / "runtime"
+    plan_out = tmp_path / "plan.toml"
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="codex-config"):
+        main([
+            "plan",
+            "--host", "claude",
+            "--root", str(skill_root),
+            "--runtime-root", str(runtime_root),
+            "--codex-config", str(codex_config_path),
+            "--out", str(plan_out),
+        ])
+
+
+def test_cli_apply_host_must_match_plan(tmp_path):
+    from sos.cli import main
+    from sos.planner import build_pack_apply_plan, serialize_write_plan
+    from sos.paths import RuntimePaths
+    from sos.propose import PackProposal
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    (skill_root / "demo").mkdir()
+    (skill_root / "demo" / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: demo\n---\n", encoding="utf-8"
+    )
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+    plan = build_pack_apply_plan(
+        runtime_paths, skill_root, codex_config_path,
+        (PackProposal(pack_id="demo", skill_names=("demo",), reason="test"),),
+        host="claude",
+    )
+    plan_path = tmp_path / "plan.toml"
+    serialize_write_plan(plan, plan_path)
+
+    # Apply without --host falls back to plan.host (claude), so should NOT fail.
+    # Apply with --host codex should fail because plan.host == claude.
+    import pytest
+    with pytest.raises(ValueError, match="plan host"):
+        main(["apply", "--plan", str(plan_path), "--host", "codex"])
+
+
 @pytest.mark.skipif(os.name != "nt", reason="backslash is path separator only on Windows")
 def test_restore_rejects_backslash_traversal_on_windows(tmp_path: Path):
     runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")

@@ -59,8 +59,9 @@ def _build_parser() -> argparse.ArgumentParser:
     plan = subcommands.add_parser("plan", help="write an auditable apply plan")
     plan.add_argument("--root", required=True)
     plan.add_argument("--runtime-root", required=True)
-    plan.add_argument("--codex-config", required=True)
+    plan.add_argument("--codex-config", default=None)
     plan.add_argument("--out", required=True)
+    plan.add_argument("--host", choices=("codex", "claude"), default="codex")
     plan.set_defaults(handler=_handle_plan)
 
     apply = subcommands.add_parser("apply", help="summarize or apply a write plan")
@@ -68,6 +69,7 @@ def _build_parser() -> argparse.ArgumentParser:
     apply.add_argument("--apply", action="store_true")
     apply.add_argument("--delete-source", action="store_true")
     apply.add_argument("--confirm-delete-source")
+    apply.add_argument("--host", choices=("codex", "claude"), default=None)
     apply.set_defaults(handler=_handle_apply)
 
     pack = subcommands.add_parser("pack", help="pack activation and sync")
@@ -102,7 +104,8 @@ def _build_parser() -> argparse.ArgumentParser:
     changes = subcommands.add_parser("changes", help="report runtime drift without writing")
     changes.add_argument("--root", required=True)
     changes.add_argument("--runtime-root", required=True)
-    changes.add_argument("--codex-config", required=True)
+    changes.add_argument("--codex-config", default=None)
+    changes.add_argument("--host", choices=("codex", "claude"), default="codex")
     changes.set_defaults(handler=_handle_changes)
 
     backup = subcommands.add_parser("backup", help="backup management")
@@ -154,14 +157,17 @@ def _handle_propose(args: argparse.Namespace) -> int:
 def _handle_plan(args: argparse.Namespace) -> int:
     root = Path(args.root)
     runtime_paths = RuntimePaths.from_root(args.runtime_root)
-    codex_config_path = Path(args.codex_config)
+    codex_config_path = _resolve_codex_config_arg(args.host, args.codex_config, "plan")
+    effective_config_path = codex_config_path or (root / ".sos-no-codex-config")
     out = Path(args.out)
     skills = scan_skill_roots(
         (root,),
         disabled_paths=_disabled_paths_from_config(codex_config_path),
     )
     proposals = propose_builtin_packs(skills)
-    plan = build_pack_apply_plan(runtime_paths, root, codex_config_path, proposals)
+    plan = build_pack_apply_plan(
+        runtime_paths, root, effective_config_path, proposals, host=args.host
+    )
     serialize_write_plan(plan, out)
     print(f"write plan: {out}")
     print(summarize_write_plan(plan))
@@ -171,7 +177,12 @@ def _handle_plan(args: argparse.Namespace) -> int:
 def _handle_apply(args: argparse.Namespace) -> int:
     plan_path = Path(args.plan)
     plan = load_write_plan(plan_path)
-    context = _context_from_plan(plan)
+    host = args.host or plan.host
+    if args.host is not None and args.host != plan.host:
+        raise ValueError(
+            f"plan host {plan.host!r} does not match --host {args.host!r}"
+        )
+    context = _context_from_plan(plan, host)
     _validate_delete_source_args(args)
     result = apply_write_plan(
         plan,
@@ -179,6 +190,7 @@ def _handle_apply(args: argparse.Namespace) -> int:
         context["codex_config_path"],
         context["active_skill_root"],
         apply=bool(args.apply),
+        host=host,
         delete_source=bool(args.delete_source),
         confirm_delete_source=args.confirm_delete_source,
     )
@@ -186,7 +198,6 @@ def _handle_apply(args: argparse.Namespace) -> int:
         print("dry-run apply; no external files written")
         print(summarize_write_plan(plan))
         return 0
-
     if result.backup_id:
         _annotate_backup_metadata(
             context["runtime_paths"],
@@ -302,7 +313,8 @@ def _handle_status(args: argparse.Namespace) -> int:
 def _handle_changes(args: argparse.Namespace) -> int:
     root = Path(args.root)
     runtime_paths = RuntimePaths.from_root(args.runtime_root)
-    report = detect_changes(root, runtime_paths, Path(args.codex_config))
+    codex_config_path = _resolve_codex_config_arg(args.host, args.codex_config, "changes")
+    report = detect_changes(root, runtime_paths, codex_config_path)
     print(f"scan root: {root}")
     print(f"runtime_root: {runtime_paths.root}")
     _print_path_section("new unmanaged skills", report.new_unmanaged)
@@ -403,14 +415,35 @@ def _disabled_paths_from_config(codex_config_path: str | Path | None) -> tuple[P
     )
 
 
-def _context_from_plan(plan: WritePlan) -> dict[str, Any]:
+def _resolve_codex_config_arg(
+    host: str, codex_config_value: str | None, command: str
+) -> Path | None:
+    if host == "codex":
+        if codex_config_value is None:
+            raise ValueError(
+                f"--codex-config is required for {command} when --host codex"
+            )
+        return Path(codex_config_value)
+    if codex_config_value is not None:
+        raise ValueError(
+            f"--codex-config is not accepted when --host claude (rejected for {command})"
+        )
+    return None
+
+
+def _context_from_plan(plan: WritePlan, host: str) -> dict[str, Any]:
     backup_vault = _single_operation(plan, OperationKind.BACKUP_VAULT)
-    backup_config = _single_operation(plan, OperationKind.BACKUP_CODEX_CONFIG)
     runtime_vault = _required_path(backup_vault.source)
     active_root = _active_root_from_plan(plan)
+    if host == "codex":
+        backup_config = _single_operation(plan, OperationKind.BACKUP_CODEX_CONFIG)
+        config_path = _required_path(backup_config.source)
+    else:
+        # For Claude, codex_config_path is unused by apply but still must be a path-like.
+        config_path = active_root / ".sos-no-codex-config"
     return {
         "runtime_paths": RuntimePaths.from_root(runtime_vault.parent),
-        "codex_config_path": _required_path(backup_config.source),
+        "codex_config_path": config_path,
         "active_skill_root": active_root,
     }
 
