@@ -513,7 +513,7 @@ def _handle_recommend_activate(args: argparse.Namespace) -> int:
     print(f"apply status: {result.status}")
     if result.message:
         print(f"message: {result.message}")
-    return 0
+    return 0 if result.status == "applied" else 1
 
 
 def _handle_recommend_record_selection(args: argparse.Namespace) -> int:
@@ -524,7 +524,7 @@ def _handle_recommend_record_selection(args: argparse.Namespace) -> int:
     selected_skill_names = _csv_tuple(args.skills)
     if not selected_skill_names:
         raise ValueError("--skills must include at least one value")
-    _validate_recommendation_selection(
+    selected_pack_ids, selected_skill_names = _validate_recommendation_selection(
         runtime_paths,
         selected_pack_ids,
         selected_skill_names,
@@ -584,15 +584,18 @@ def _validate_recommendation_selection(
     runtime_paths: RuntimePaths,
     selected_pack_ids: tuple[str, ...],
     selected_skill_names: tuple[str, ...],
-) -> None:
-    manifests_by_id = {manifest.id: manifest for manifest in list_pack_manifests(runtime_paths)}
-    selected_manifests = []
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    runtime_manifests = list_pack_manifests(runtime_paths)
+    manifests_by_id = {manifest.id: manifest for manifest in runtime_manifests}
+    selected_pack_set = set(selected_pack_ids)
     for pack_id in selected_pack_ids:
-        manifest = manifests_by_id.get(pack_id)
-        if manifest is None:
+        if pack_id not in manifests_by_id:
             raise ValueError(f"unknown selected pack: {pack_id}")
-        selected_manifests.append(manifest)
+    canonical_pack_ids = tuple(
+        manifest.id for manifest in runtime_manifests if manifest.id in selected_pack_set
+    )
 
+    selected_manifests = tuple(manifests_by_id[pack_id] for pack_id in canonical_pack_ids)
     skill_names = {
         skill.name
         for manifest in selected_manifests
@@ -601,6 +604,13 @@ def _validate_recommendation_selection(
     for skill_name in selected_skill_names:
         if skill_name not in skill_names:
             raise ValueError(f"selected skill not in selected packs: {skill_name}")
+    selected_skill_set = set(selected_skill_names)
+    canonical_skill_names: list[str] = []
+    for manifest in selected_manifests:
+        for skill in manifest.skills:
+            if skill.name in selected_skill_set and skill.name not in canonical_skill_names:
+                canonical_skill_names.append(skill.name)
+    return canonical_pack_ids, tuple(canonical_skill_names)
 
 
 def _redacted_runtime_path(path: str | Path, runtime_paths: RuntimePaths) -> str:

@@ -217,11 +217,12 @@ def _count_user_accepted_activation_events(
     for event in events:
         if event.selection_source != "user_accepted" or event.outcome != "activated":
             continue
+        selected_pack_ids = tuple(sorted(set(event.selected_pack_ids)))
         key = (
             event.workspace_id,
             event.scenario_label,
             tuple(sorted(set(event.scenario_tags))),
-            event.selected_pack_ids,
+            selected_pack_ids,
         )
         counts[key] = counts.get(key, 0) + 1
     return counts
@@ -253,6 +254,8 @@ def _validate_scenario_label(value: str, scenario_tags: tuple[str, ...]) -> None
 def _validate_identifier_values(values: tuple[str, ...], label: str) -> None:
     if not values:
         raise ValueError(f"unsafe {label}: empty")
+    if len(set(values)) != len(values):
+        raise ValueError(f"unsafe {label}: duplicate")
     for value in values:
         if not _SAFE_IDENTIFIER_RE.fullmatch(value):
             raise ValueError(f"unsafe {label}: {value}")

@@ -694,6 +694,102 @@ def test_recommend_record_selection_and_learn(capsys, tmp_path: Path):
     assert str(workspace_root) not in first_record_output
 
 
+def test_recommend_record_selection_canonicalizes_duplicate_and_ordered_values(
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+
+    exit_code = main(
+        [
+            "recommend",
+            "record-selection",
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--workspace-root",
+            str(workspace_root),
+            "--scenario-label",
+            "docs",
+            "--scenario-tags",
+            "docs",
+            "--packs",
+            "docs,docs",
+            "--skills",
+            "documents,documents",
+            "--manifest-fingerprint",
+            "sha256:docs",
+        ]
+    )
+
+    raw_events = selection_events_path(runtime_paths).read_text(encoding="utf-8")
+    event_payload = json.loads(raw_events)
+    assert exit_code == 0
+    assert event_payload["selected_pack_ids"] == ["docs"]
+    assert event_payload["selected_skill_names"] == ["documents"]
+
+
+def test_recommend_activate_apply_returns_nonzero_on_failed_apply(
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    plan_path = tmp_path / "workspace-activation-plan.toml"
+    plan_exit = main(
+        [
+            "recommend",
+            "activation-plan",
+            "--workspace-root",
+            str(workspace_root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--packs",
+            "docs",
+            "--out",
+            str(plan_path),
+        ]
+    )
+    assert plan_exit == 0
+    capsys.readouterr()
+
+    def fail_asahina(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("sos.workspace_activation.render_asahina_skill", fail_asahina)
+
+    exit_code = main(
+        [
+            "recommend",
+            "activate",
+            "--plan",
+            str(plan_path),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--workspace-root",
+            str(workspace_root),
+            "--apply",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "apply status: failed" in captured.out
+    assert "message: boom" in captured.out
+
+
 def test_recommend_record_selection_rejects_empty_packs_and_skills(tmp_path: Path):
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()

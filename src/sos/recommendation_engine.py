@@ -201,7 +201,7 @@ def _accepted_local_selection_counts(
             continue
         if not scenario_tags.intersection(event.scenario_tags):
             continue
-        for pack_id in event.selected_pack_ids:
+        for pack_id in set(event.selected_pack_ids):
             counts[pack_id] += 1
     return counts
 
