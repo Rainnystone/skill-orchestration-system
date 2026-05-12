@@ -187,6 +187,40 @@ def test_old_reversed_semantics_do_not_count_toward_learned_reference(tmp_path: 
     assert reference == recommendation_store.ASAHINA_EMPTY_REFERENCE
 
 
+def test_unsupported_schema_versions_are_ignored(tmp_path: Path):
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    path = recommendation_store.selection_events_path(runtime_paths)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(
+            json.dumps(
+                {
+                    "schema_version": 999,
+                    "created_at": f"2026-05-12T10:00:0{index}+00:00",
+                    "workspace_id": "sha256:1234",
+                    "scenario_label": "apify crawler",
+                    "scenario_tags": ["apify", "crawler"],
+                    "selected_pack_ids": ["apify"],
+                    "selected_skill_names": ["crawl-site"],
+                    "manifest_fingerprint": "sha256:abcd",
+                    "selection_source": "user_accepted",
+                    "outcome": "activated",
+                },
+                separators=(",", ":"),
+            )
+            + "\n"
+            for index in range(10)
+        ),
+        encoding="utf-8",
+    )
+
+    loaded_events = recommendation_store.load_selection_events(runtime_paths)
+    reference = recommendation_store.build_learned_reference(loaded_events)
+
+    assert loaded_events == ()
+    assert reference == recommendation_store.ASAHINA_EMPTY_REFERENCE
+
+
 def test_below_threshold_returns_empty_reference(tmp_path: Path):
     runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
     event = recommendation_store.SelectionEvent(

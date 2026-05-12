@@ -159,7 +159,7 @@ def _selection_event_from_payload(payload: Any) -> SelectionEvent | None:
     selection_source = payload.get("selection_source")
     outcome = payload.get("outcome")
 
-    if not isinstance(schema_version, int):
+    if schema_version != 1:
         return None
     if not all(
         isinstance(value, str)
