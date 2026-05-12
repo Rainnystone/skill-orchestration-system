@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,8 @@ from sos.manifest import save_pack_manifest, save_registry
 from sos.models import PackManifest, Registry, SkillEntry
 from sos.paths import RuntimePaths
 from sos.pointer import render_companion_skill
-from sos.cli import main
+from sos.cli import _runtime_manifest_fingerprint, main
+from sos.recommendation_store import learned_reference_path, selection_events_path
 from sos.toml_io import read_toml, write_toml
 
 
@@ -331,6 +333,837 @@ def test_pack_sync_with_apply_updates_vault_and_manifest(capsys, tmp_path: Path)
     assert exit_code == 0
     assert "synced" in captured.out
     assert (vault / "SKILL.md").read_text(encoding="utf-8") == "# Updated source\n"
+
+
+def test_recommend_context_reports_recommendations_without_writing(
+    capsys,
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "README.md").write_text("# Docs workspace\n", encoding="utf-8")
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+
+    exit_code = main(
+        [
+            "recommend",
+            "context",
+            "--workspace-root",
+            str(workspace_root),
+            "--runtime-root",
+            str(runtime_paths.root),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "workspace_kinds: docs" in captured.out
+    assert "runtime_packs: 1" in captured.out
+    assert "- docs: documents" in captured.out
+    assert not learned_reference_path(runtime_paths).exists()
+
+
+def test_recommend_commands_redact_local_paths_from_stdout(capsys, tmp_path: Path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "README.md").write_text("# Docs workspace\n", encoding="utf-8")
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    plan_path = tmp_path / "workspace-activation-plan.toml"
+
+    assert (
+        main(
+            [
+                "recommend",
+                "context",
+                "--workspace-root",
+                str(workspace_root),
+                "--runtime-root",
+                str(runtime_paths.root),
+            ]
+        )
+        == 0
+    )
+    context_output = capsys.readouterr().out
+
+    assert (
+        main(
+            [
+                "recommend",
+                "activation-plan",
+                "--workspace-root",
+                str(workspace_root),
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--packs",
+                "docs",
+                "--out",
+                str(plan_path),
+            ]
+        )
+        == 0
+    )
+    plan_output = capsys.readouterr().out
+
+    assert (
+        main(
+            [
+                "recommend",
+                "activate",
+                "--plan",
+                str(plan_path),
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+            ]
+        )
+        == 0
+    )
+    dry_run_output = capsys.readouterr().out
+
+    assert (
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                "docs workflow",
+                "--scenario-tags",
+                "docs,workflow",
+                "--packs",
+                "docs",
+                "--skills",
+                "documents",
+                "--manifest-fingerprint",
+                _runtime_manifest_fingerprint(runtime_paths),
+            ]
+        )
+        == 0
+    )
+    record_output = capsys.readouterr().out
+
+    assert main(["recommend", "learn", "--runtime-root", str(runtime_paths.root)]) == 0
+    learn_output = capsys.readouterr().out
+
+    combined_output = "\n".join(
+        (context_output, plan_output, dry_run_output, record_output, learn_output)
+    )
+    _assert_output_omits_path_variants(
+        combined_output,
+        tmp_path,
+        workspace_root,
+        runtime_paths.root,
+        plan_path,
+    )
+    assert "WORKSPACE_ROOT" in combined_output
+    assert "RUNTIME_ROOT" in combined_output
+    assert "WORKSPACE_PLAN" in combined_output
+
+
+def test_recommend_activation_plan_and_activate_apply(capsys, tmp_path: Path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "README.md").write_text("# Docs workspace\n", encoding="utf-8")
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    plan_path = tmp_path / "workspace-activation-plan.toml"
+
+    plan_exit = main(
+        [
+            "recommend",
+            "activation-plan",
+            "--workspace-root",
+            str(workspace_root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--packs",
+            "docs",
+            "--out",
+            str(plan_path),
+        ]
+    )
+    plan_output = capsys.readouterr().out
+
+    activate_exit = main(
+        [
+            "recommend",
+            "activate",
+            "--plan",
+            str(plan_path),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--workspace-root",
+            str(workspace_root),
+            "--apply",
+        ]
+    )
+    activate_output = capsys.readouterr().out
+
+    workspace_skills = workspace_root / ".agents" / "skills"
+    assert plan_exit == 0
+    assert "workspace activation plan" in plan_output
+    assert activate_exit == 0
+    assert "apply status: applied" in activate_output
+    assert (workspace_skills / "sos-nagato" / "SKILL.md").is_file()
+    assert (workspace_skills / "sos-asahina" / "SKILL.md").is_file()
+    assert (workspace_skills / "sos-docs" / "SKILL.md").is_file()
+
+
+def test_recommend_activate_without_apply_is_dry_run(capsys, tmp_path: Path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "README.md").write_text("# Docs workspace\n", encoding="utf-8")
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    plan_path = tmp_path / "workspace-activation-plan.toml"
+    plan_exit = main(
+        [
+            "recommend",
+            "activation-plan",
+            "--workspace-root",
+            str(workspace_root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--packs",
+            "docs",
+            "--out",
+            str(plan_path),
+        ]
+    )
+    assert plan_exit == 0
+    capsys.readouterr()
+
+    activate_exit = main(
+        [
+            "recommend",
+            "activate",
+            "--plan",
+            str(plan_path),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--workspace-root",
+            str(workspace_root),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert activate_exit == 0
+    assert "dry-run workspace activation; no external files written" in captured.out
+    assert not (workspace_root / ".agents").exists()
+    assert not learned_reference_path(runtime_paths).exists()
+
+
+def test_recommend_activate_rejects_tampered_workspace_root(
+    capsys,
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    tampered_workspace_root = tmp_path / "other-workspace"
+    tampered_workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    plan_path = tmp_path / "workspace-activation-plan.toml"
+    plan_exit = main(
+        [
+            "recommend",
+            "activation-plan",
+            "--workspace-root",
+            str(workspace_root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--packs",
+            "docs",
+            "--out",
+            str(plan_path),
+        ]
+    )
+    assert plan_exit == 0
+    capsys.readouterr()
+    _retarget_workspace_activation_plan(
+        plan_path,
+        tampered_workspace_root / ".agents" / "skills",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="workspace activation plan workspace root does not match",
+    ):
+        main(
+            [
+                "recommend",
+                "activate",
+                "--plan",
+                str(plan_path),
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--apply",
+            ]
+        )
+
+    assert not (tampered_workspace_root / ".agents").exists()
+
+
+def test_recommend_record_selection_and_learn(capsys, tmp_path: Path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+
+    first_record_output = ""
+    for index in range(10):
+        exit_code = main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                "docs workflow",
+                "--scenario-tags",
+                "docs,workflow",
+                "--packs",
+                "docs",
+                "--skills",
+                "documents",
+                "--manifest-fingerprint",
+                _runtime_manifest_fingerprint(runtime_paths),
+            ]
+        )
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        if index == 0:
+            first_record_output = captured.out
+
+    learn_exit = main(
+        [
+            "recommend",
+            "learn",
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--apply",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert learn_exit == 0
+    learned_path = learned_reference_path(runtime_paths)
+    events_path = selection_events_path(runtime_paths)
+    raw_events = events_path.read_text(encoding="utf-8")
+    event_payload = json.loads(raw_events.splitlines()[0])
+    assert learned_path.exists()
+    assert "Evidence: 10 accepted selections" in learned_path.read_text(encoding="utf-8")
+    assert "learned reference: applied RUNTIME_ROOT/state/recommendations/asahina-reference.md" in captured.out
+    assert str(learned_path) not in captured.out
+    assert str(workspace_root) not in raw_events
+    assert event_payload["workspace_id"].startswith("sha256:")
+    assert str(workspace_root) not in first_record_output
+
+
+def test_recommend_learn_skips_history_that_does_not_match_runtime_manifests(
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    stale_events = []
+    for index in range(10):
+        stale_events.append(
+            {
+                "schema_version": 1,
+                "created_at": f"2026-05-12T10:00:0{index}+00:00",
+                "workspace_id": "sha256:stale",
+                "scenario_label": "docs",
+                "scenario_tags": ["docs"],
+                "selected_pack_ids": ["web"],
+                "selected_skill_names": ["documents"],
+                "manifest_fingerprint": "sha256:stale",
+                "selection_source": "user_accepted",
+                "outcome": "activated",
+            }
+        )
+        stale_events.append(
+            {
+                "schema_version": 1,
+                "created_at": f"2026-05-12T10:01:0{index}+00:00",
+                "workspace_id": "sha256:old-docs",
+                "scenario_label": "docs",
+                "scenario_tags": ["docs"],
+                "selected_pack_ids": ["docs"],
+                "selected_skill_names": ["removed-skill"],
+                "manifest_fingerprint": "sha256:old-docs",
+                "selection_source": "user_accepted",
+                "outcome": "activated",
+            }
+        )
+    events_path = selection_events_path(runtime_paths)
+    events_path.parent.mkdir(parents=True, exist_ok=True)
+    events_path.write_text(
+        "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in stale_events),
+        encoding="utf-8",
+    )
+
+    learn_exit = main(
+        [
+            "recommend",
+            "learn",
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--apply",
+        ]
+    )
+
+    assert learn_exit == 0
+    learned_text = learned_reference_path(runtime_paths).read_text(encoding="utf-8")
+    assert "Prefer recommending: web" not in learned_text
+    assert "Prefer recommending: docs" not in learned_text
+    assert "Status: empty" in learned_text
+
+
+def test_recommend_learn_skips_history_with_stale_manifest_fingerprint(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    stale_events = [
+        {
+            "schema_version": 1,
+            "created_at": f"2026-05-12T10:00:0{index}+00:00",
+            "workspace_id": "sha256:stale-manifest",
+            "scenario_label": "docs",
+            "scenario_tags": ["docs"],
+            "selected_pack_ids": ["docs"],
+            "selected_skill_names": ["documents"],
+            "manifest_fingerprint": "sha256:old-runtime-manifest",
+            "selection_source": "user_accepted",
+            "outcome": "activated",
+        }
+        for index in range(10)
+    ]
+    events_path = selection_events_path(runtime_paths)
+    events_path.parent.mkdir(parents=True, exist_ok=True)
+    events_path.write_text(
+        "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in stale_events),
+        encoding="utf-8",
+    )
+
+    learn_exit = main(
+        [
+            "recommend",
+            "learn",
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--apply",
+        ]
+    )
+
+    assert learn_exit == 0
+    learned_text = learned_reference_path(runtime_paths).read_text(encoding="utf-8")
+    assert "Prefer recommending: docs" not in learned_text
+    assert "Status: empty" in learned_text
+
+
+def test_recommend_record_selection_canonicalizes_duplicate_and_ordered_values(
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+
+    exit_code = main(
+        [
+            "recommend",
+            "record-selection",
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--workspace-root",
+            str(workspace_root),
+            "--scenario-label",
+            "docs",
+            "--scenario-tags",
+            "docs",
+            "--packs",
+            "docs,docs",
+            "--skills",
+            "documents,documents",
+            "--manifest-fingerprint",
+            _runtime_manifest_fingerprint(runtime_paths),
+        ]
+    )
+
+    raw_events = selection_events_path(runtime_paths).read_text(encoding="utf-8")
+    event_payload = json.loads(raw_events)
+    assert exit_code == 0
+    assert event_payload["selected_pack_ids"] == ["docs"]
+    assert event_payload["selected_skill_names"] == ["documents"]
+
+
+def test_recommend_activate_apply_returns_nonzero_on_failed_apply(
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    plan_path = tmp_path / "workspace-activation-plan.toml"
+    plan_exit = main(
+        [
+            "recommend",
+            "activation-plan",
+            "--workspace-root",
+            str(workspace_root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--packs",
+            "docs",
+            "--out",
+            str(plan_path),
+        ]
+    )
+    assert plan_exit == 0
+    capsys.readouterr()
+
+    def fail_asahina(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("sos.workspace_activation.render_asahina_skill", fail_asahina)
+
+    exit_code = main(
+        [
+            "recommend",
+            "activate",
+            "--plan",
+            str(plan_path),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--workspace-root",
+            str(workspace_root),
+            "--apply",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "apply status: failed" in captured.out
+    assert "message: boom" in captured.out
+
+
+def test_recommend_record_selection_rejects_empty_packs_and_skills(tmp_path: Path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+
+    with pytest.raises(ValueError, match="--packs must include at least one value"):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                "docs",
+                "--scenario-tags",
+                "docs",
+                "--packs",
+                ",",
+                "--skills",
+                "documents",
+                "--manifest-fingerprint",
+                _runtime_manifest_fingerprint(runtime_paths),
+            ]
+        )
+
+    with pytest.raises(ValueError, match="--skills must include at least one value"):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                "docs workflow",
+                "--scenario-tags",
+                "docs",
+                "--packs",
+                "docs",
+                "--skills",
+                ",",
+                "--manifest-fingerprint",
+                _runtime_manifest_fingerprint(runtime_paths),
+            ]
+        )
+
+
+def test_recommend_record_selection_rejects_unsafe_persisted_values(tmp_path: Path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+
+    with pytest.raises(ValueError, match="unsafe scenario_label"):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                r"C:\Users\private\prompt",
+                "--scenario-tags",
+                "docs",
+                "--packs",
+                "docs",
+                "--skills",
+                "documents",
+                "--manifest-fingerprint",
+                _runtime_manifest_fingerprint(runtime_paths),
+            ]
+        )
+
+    with pytest.raises(ValueError, match="unsafe scenario_tag"):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                "docs workflow",
+                "--scenario-tags",
+                "docs,/private/path",
+                "--packs",
+                "docs",
+                "--skills",
+                "documents",
+                "--manifest-fingerprint",
+                _runtime_manifest_fingerprint(runtime_paths),
+            ]
+        )
+
+    with pytest.raises(ValueError, match="unsafe scenario_label"):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                "please summarize secret board deck",
+                "--scenario-tags",
+                "docs,deck",
+                "--packs",
+                "docs",
+                "--skills",
+                "documents",
+                "--manifest-fingerprint",
+                _runtime_manifest_fingerprint(runtime_paths),
+            ]
+        )
+
+    assert not selection_events_path(runtime_paths).exists()
+
+
+def test_recommend_record_selection_rejects_unknown_runtime_pack_or_skill(
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+
+    with pytest.raises(ValueError, match="unknown selected pack"):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                "docs",
+                "--scenario-tags",
+                "docs",
+                "--packs",
+                "not-a-real-pack",
+                "--skills",
+                "documents",
+                "--manifest-fingerprint",
+                _runtime_manifest_fingerprint(runtime_paths),
+            ]
+        )
+
+    with pytest.raises(ValueError, match="selected skill not in selected packs"):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                "docs",
+                "--scenario-tags",
+                "docs",
+                "--packs",
+                "docs",
+                "--skills",
+                "not-a-real-skill",
+                "--manifest-fingerprint",
+                _runtime_manifest_fingerprint(runtime_paths),
+            ]
+        )
+
+    assert not selection_events_path(runtime_paths).exists()
+
+
+def test_recommend_record_selection_rejects_pack_without_selected_skill(
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_two_runtime_packs(tmp_path / ".sos")
+
+    with pytest.raises(ValueError, match="selected pack has no selected skills"):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                "docs browser",
+                "--scenario-tags",
+                "docs,browser",
+                "--packs",
+                "browser,docs",
+                "--skills",
+                "documents",
+                "--manifest-fingerprint",
+                _runtime_manifest_fingerprint(runtime_paths),
+            ]
+        )
+
+    assert not selection_events_path(runtime_paths).exists()
+
+
+def test_recommend_learn_preview_does_not_write_reference(capsys, tmp_path: Path):
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    selection_events_path(runtime_paths).parent.mkdir(parents=True, exist_ok=True)
+    for index in range(10):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(tmp_path / "workspace"),
+                "--scenario-label",
+                "docs",
+                "--scenario-tags",
+                "docs",
+                "--packs",
+                "docs",
+                "--skills",
+                "documents",
+                "--manifest-fingerprint",
+                _runtime_manifest_fingerprint(runtime_paths),
+            ]
+        )
+    capsys.readouterr()
+
+    exit_code = main(["recommend", "learn", "--runtime-root", str(runtime_paths.root)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "learned reference preview:" in captured.out
+    assert not learned_reference_path(runtime_paths).exists()
 
 
 def test_pack_list_reports_runtime_packs_without_writing(capsys, tmp_path: Path):
@@ -944,6 +1777,30 @@ def _write_cli_plan(
     return plan_path
 
 
+def _retarget_workspace_activation_plan(plan_path: Path, workspace_skill_root: Path) -> None:
+    data = read_toml(plan_path)
+    for operation in data["operations"]:
+        if operation["kind"] not in {"write_workspace_skill", "write_pointer"}:
+            continue
+        skill_name = Path(operation["target"]).parent.name
+        operation["target"] = str(workspace_skill_root / skill_name / "SKILL.md")
+        metadata = operation.setdefault("metadata", {})
+        metadata["workspace_skill_root"] = str(workspace_skill_root)
+    write_toml(plan_path, data)
+
+
+def _assert_output_omits_path_variants(output: str, *paths: Path) -> None:
+    for path in paths:
+        variants = {
+            str(path),
+            path.as_posix(),
+            str(path.resolve(strict=False)),
+            path.resolve(strict=False).as_posix(),
+        }
+        for variant in variants:
+            assert variant not in output
+
+
 def _disabled_config_paths(codex_config: Path) -> set[str]:
     entries = read_toml(codex_config)["skills"]["config"]
     return {str(entry["path"]) for entry in entries if entry.get("enabled") is False}
@@ -1011,6 +1868,52 @@ def _write_runtime_pack(
         ),
     )
     return runtime_paths, manifest
+
+
+def _write_two_runtime_packs(runtime_root: Path) -> tuple[RuntimePaths, tuple[PackManifest, ...]]:
+    runtime_paths, docs_manifest = _write_runtime_pack(
+        runtime_root,
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    browser_source = _write_skill(
+        runtime_root / "sources",
+        "open-browser",
+        "# Browser skill\n",
+    )
+    browser_vault = _write_skill(
+        runtime_paths.vault / "browser",
+        "open-browser",
+        "# Browser skill\n",
+    )
+    browser_manifest = PackManifest(
+        id="browser",
+        display_name="Browser",
+        description="Open pages, inspect web apps, and test browser flows.",
+        pointer_skill="sos-browser",
+        aliases=("browser",),
+        sync_policy="clean-auto",
+        vault_root=runtime_paths.vault / "browser",
+        skills=(
+            SkillEntry(
+                name="open-browser",
+                description="Navigate and inspect browser pages.",
+                source_path=browser_source,
+                vault_path=browser_vault,
+                origin="codex",
+            ),
+        ),
+    )
+    save_pack_manifest(runtime_paths.packs / "browser.toml", browser_manifest)
+    save_registry(
+        runtime_paths.state / "registry.toml",
+        Registry(
+            packs=(docs_manifest, browser_manifest),
+            active_pointers=("sos-haruhi", "sos-docs", "sos-browser"),
+        ),
+    )
+    return runtime_paths, (docs_manifest, browser_manifest)
 
 
 def _write_config_and_vault(tmp_path: Path) -> tuple[Path, Path]:

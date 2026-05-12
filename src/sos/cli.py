@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+import hashlib
+from collections.abc import Iterable, Sequence
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -21,9 +23,25 @@ from sos.planner import (
     summarize_write_plan,
 )
 from sos.propose import propose_builtin_packs
+from sos.recommendation_engine import build_recommendation_context, recommend_packs
+from sos.recommendation_store import (
+    SelectionEvent,
+    append_selection_event,
+    build_learned_reference,
+    canonicalize_scenario_tags,
+    learned_reference_path,
+    load_selection_events,
+    scenario_label_from_tags,
+    workspace_id_for_path,
+    write_learned_reference,
+)
 from sos.scanner import ScannedSkill, scan_skill_roots
 from sos.sync import activate_pack, apply_pack_sync, plan_pack_sync
 from sos.toml_io import read_toml, write_toml
+from sos.workspace_activation import (
+    apply_workspace_activation_plan,
+    build_workspace_activation_plan,
+)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -126,6 +144,62 @@ def _build_parser() -> argparse.ArgumentParser:
     restore.add_argument("--runtime-root", required=True)
     restore.add_argument("--apply", action="store_true")
     restore.set_defaults(handler=_handle_restore)
+
+    recommend = subcommands.add_parser("recommend", help="workspace recommendation workflow")
+    recommend_subcommands = recommend.add_subparsers(
+        dest="recommend_command",
+        required=True,
+    )
+
+    recommend_context = recommend_subcommands.add_parser(
+        "context",
+        help="inspect workspace recommendation context",
+    )
+    recommend_context.add_argument("--workspace-root", required=True)
+    recommend_context.add_argument("--runtime-root", required=True)
+    recommend_context.add_argument("--intent", default="")
+    recommend_context.set_defaults(handler=_handle_recommend_context)
+
+    recommend_activation_plan = recommend_subcommands.add_parser(
+        "activation-plan",
+        help="write a workspace activation plan",
+    )
+    recommend_activation_plan.add_argument("--workspace-root", required=True)
+    recommend_activation_plan.add_argument("--runtime-root", required=True)
+    recommend_activation_plan.add_argument("--packs", required=True)
+    recommend_activation_plan.add_argument("--out", required=True)
+    recommend_activation_plan.set_defaults(handler=_handle_recommend_activation_plan)
+
+    recommend_activate = recommend_subcommands.add_parser(
+        "activate",
+        help="summarize or apply a workspace activation plan",
+    )
+    recommend_activate.add_argument("--plan", required=True)
+    recommend_activate.add_argument("--runtime-root", required=True)
+    recommend_activate.add_argument("--workspace-root", required=True)
+    recommend_activate.add_argument("--apply", action="store_true")
+    recommend_activate.set_defaults(handler=_handle_recommend_activate)
+
+    recommend_record_selection = recommend_subcommands.add_parser(
+        "record-selection",
+        help="record an accepted workspace recommendation selection",
+    )
+    recommend_record_selection.add_argument("--runtime-root", required=True)
+    recommend_record_selection.add_argument("--workspace-root", required=True)
+    recommend_record_selection.add_argument("--scenario-label", required=True)
+    recommend_record_selection.add_argument("--scenario-tags", required=True)
+    recommend_record_selection.add_argument("--packs", required=True)
+    recommend_record_selection.add_argument("--skills", required=True)
+    recommend_record_selection.add_argument("--manifest-fingerprint", required=True)
+    recommend_record_selection.set_defaults(handler=_handle_recommend_record_selection)
+
+    recommend_learn = recommend_subcommands.add_parser(
+        "learn",
+        help="build or apply the learned recommendation reference",
+    )
+    recommend_learn.add_argument("--runtime-root", required=True)
+    recommend_learn.add_argument("--apply", action="store_true")
+    recommend_learn.set_defaults(handler=_handle_recommend_learn)
 
     return parser
 
@@ -356,12 +430,13 @@ def _handle_backup_list(args: argparse.Namespace) -> int:
 def _handle_restore(args: argparse.Namespace) -> int:
     runtime_paths = RuntimePaths.from_root(args.runtime_root)
     codex_config_path, vault_root = _restore_targets(runtime_paths, args.backup_id)
-    codex_display = str(codex_config_path) if codex_config_path is not None else "(claude — no codex config)"
+    codex_display = str(codex_config_path) if codex_config_path is not None else "(no codex config)"
+    vault_display = str(vault_root) if vault_root is not None else "(no vault target)"
     if not args.apply:
         print("dry-run restore; no external files written")
         print(f"backup_id: {args.backup_id}")
         print(f"codex_config_path: {codex_display}")
-        print(f"vault_root: {vault_root}")
+        print(f"vault_root: {vault_display}")
         return 0
     record = restore_backup(
         runtime_paths,
@@ -372,7 +447,7 @@ def _handle_restore(args: argparse.Namespace) -> int:
     )
     print(f"restored: {record.backup_id}")
     print(f"codex_config_path: {codex_display}")
-    print(f"vault_root: {vault_root}")
+    print(f"vault_root: {vault_display}")
     return 0
 
 
@@ -386,6 +461,280 @@ def _handle_backup_clean(args: argparse.Namespace) -> int:
     for backup in kept:
         print(f"- {backup.backup_id}")
     return 0
+
+
+def _handle_recommend_context(args: argparse.Namespace) -> int:
+    runtime_paths = RuntimePaths.from_root(args.runtime_root)
+    context = build_recommendation_context(
+        runtime_paths,
+        args.workspace_root,
+        intent=args.intent,
+    )
+    recommendations = recommend_packs(context)
+    learned_path = learned_reference_path(runtime_paths)
+    workspace_kinds = ", ".join(context.workspace_signal.kinds) or "none"
+    print("workspace_root: WORKSPACE_ROOT")
+    print(f"workspace_id: {context.workspace_id}")
+    print(f"workspace_kinds: {workspace_kinds}")
+    print(f"runtime_packs: {len(context.pack_manifests)}")
+    print(f"manifest_fingerprint: {_runtime_manifest_fingerprint(runtime_paths)}")
+    print(
+        "learned_reference: "
+        + ("present" if learned_path.is_file() else "missing")
+    )
+    print(f"learned_reference_path: {_redacted_runtime_path(learned_path, runtime_paths)}")
+    print(f"selection_events: {len(context.selection_events)}")
+    print(f"recommendations: {len(recommendations)}")
+    for recommendation in recommendations:
+        print(f"- {recommendation.pack_id}: {', '.join(recommendation.skill_names)}")
+        print(f"  reason: {recommendation.reason}")
+    return 0
+
+
+def _handle_recommend_activation_plan(args: argparse.Namespace) -> int:
+    runtime_paths = RuntimePaths.from_root(args.runtime_root)
+    out = Path(args.out)
+    plan = build_workspace_activation_plan(
+        runtime_paths,
+        args.workspace_root,
+        _csv_tuple(args.packs),
+    )
+    serialize_write_plan(plan, out)
+    print("workspace activation plan: WORKSPACE_PLAN")
+    print(
+        _redacted_recommendation_plan_summary(
+            plan,
+            runtime_paths,
+            args.workspace_root,
+            plan_path=out,
+        )
+    )
+    return 0
+
+
+def _handle_recommend_activate(args: argparse.Namespace) -> int:
+    plan = load_write_plan(Path(args.plan))
+    runtime_paths = RuntimePaths.from_root(args.runtime_root)
+    result = apply_workspace_activation_plan(
+        plan,
+        runtime_paths,
+        workspace_root=args.workspace_root,
+        apply=bool(args.apply),
+    )
+    if not args.apply:
+        print("dry-run workspace activation; no external files written")
+        print(
+            _redacted_recommendation_plan_summary(
+                plan,
+                runtime_paths,
+                args.workspace_root,
+                plan_path=Path(args.plan),
+            )
+        )
+        return 0
+    print(f"apply status: {result.status}")
+    if result.message:
+        print(f"message: {result.message}")
+    return 0 if result.status == "applied" else 1
+
+
+def _handle_recommend_record_selection(args: argparse.Namespace) -> int:
+    runtime_paths = RuntimePaths.from_root(args.runtime_root)
+    selected_pack_ids = _csv_tuple(args.packs)
+    if not selected_pack_ids:
+        raise ValueError("--packs must include at least one value")
+    selected_skill_names = _csv_tuple(args.skills)
+    if not selected_skill_names:
+        raise ValueError("--skills must include at least one value")
+    scenario_tags = _csv_tuple(args.scenario_tags)
+    _validate_scenario_label_argument(args.scenario_label, scenario_tags)
+    scenario_tags = canonicalize_scenario_tags(scenario_tags)
+    selected_pack_ids, selected_skill_names = _validate_recommendation_selection(
+        runtime_paths,
+        selected_pack_ids,
+        selected_skill_names,
+    )
+    current_manifest_fingerprint = _runtime_manifest_fingerprint(runtime_paths)
+    if args.manifest_fingerprint != current_manifest_fingerprint:
+        raise ValueError("manifest fingerprint does not match current runtime manifests")
+    event = SelectionEvent(
+        schema_version=1,
+        created_at=_utc_now_isoformat(),
+        workspace_id=workspace_id_for_path(args.workspace_root),
+        scenario_label=scenario_label_from_tags(scenario_tags),
+        scenario_tags=scenario_tags,
+        selected_pack_ids=selected_pack_ids,
+        selected_skill_names=selected_skill_names,
+        manifest_fingerprint=current_manifest_fingerprint,
+        selection_source="user_accepted",
+        outcome="activated",
+    )
+    path = append_selection_event(runtime_paths, event)
+    print(f"selection event: {_redacted_runtime_path(path, runtime_paths)}")
+    print(
+        "recorded selection: "
+        f"{event.scenario_label}; packs={', '.join(event.selected_pack_ids)}; "
+        f"skills={', '.join(event.selected_skill_names)}"
+    )
+    return 0
+
+
+def _handle_recommend_learn(args: argparse.Namespace) -> int:
+    runtime_paths = RuntimePaths.from_root(args.runtime_root)
+    reference = build_learned_reference(
+        _manifest_valid_selection_events(
+            load_selection_events(runtime_paths),
+            runtime_paths,
+        )
+    )
+    path = write_learned_reference(runtime_paths, reference, apply=bool(args.apply))
+    if not args.apply:
+        print("learned reference preview:")
+        print(reference.rstrip())
+        print(f"path: {_redacted_runtime_path(path, runtime_paths)}")
+        return 0
+    print(f"learned reference: applied {_redacted_runtime_path(path, runtime_paths)}")
+    return 0
+
+
+def _redacted_recommendation_plan_summary(
+    plan: WritePlan,
+    runtime_paths: RuntimePaths,
+    workspace_root: str | Path,
+    *,
+    plan_path: str | Path | None = None,
+) -> str:
+    replacements: list[tuple[Path, str]] = [
+        (Path(workspace_root), "WORKSPACE_ROOT"),
+        (runtime_paths.root, "RUNTIME_ROOT"),
+    ]
+    if plan_path is not None:
+        replacements.append((Path(plan_path), "WORKSPACE_PLAN"))
+    return _redact_local_paths(summarize_write_plan(plan), replacements)
+
+
+def _validate_recommendation_selection(
+    runtime_paths: RuntimePaths,
+    selected_pack_ids: tuple[str, ...],
+    selected_skill_names: tuple[str, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    runtime_manifests = list_pack_manifests(runtime_paths)
+    manifests_by_id = {manifest.id: manifest for manifest in runtime_manifests}
+    selected_pack_set = set(selected_pack_ids)
+    for pack_id in selected_pack_ids:
+        if pack_id not in manifests_by_id:
+            raise ValueError(f"unknown selected pack: {pack_id}")
+    canonical_pack_ids = tuple(
+        manifest.id for manifest in runtime_manifests if manifest.id in selected_pack_set
+    )
+
+    selected_manifests = tuple(manifests_by_id[pack_id] for pack_id in canonical_pack_ids)
+    skill_names = {
+        skill.name
+        for manifest in selected_manifests
+        for skill in manifest.skills
+    }
+    for skill_name in selected_skill_names:
+        if skill_name not in skill_names:
+            raise ValueError(f"selected skill not in selected packs: {skill_name}")
+    selected_skill_set = set(selected_skill_names)
+    canonical_skill_names: list[str] = []
+    for manifest in selected_manifests:
+        if not any(skill.name in selected_skill_set for skill in manifest.skills):
+            raise ValueError(f"selected pack has no selected skills: {manifest.id}")
+        for skill in manifest.skills:
+            if skill.name in selected_skill_set and skill.name not in canonical_skill_names:
+                canonical_skill_names.append(skill.name)
+    return canonical_pack_ids, tuple(canonical_skill_names)
+
+
+def _validate_scenario_label_argument(
+    scenario_label: str,
+    scenario_tags: tuple[str, ...],
+) -> None:
+    accepted_labels = {
+        " ".join(dict.fromkeys(scenario_tags)),
+        scenario_label_from_tags(canonicalize_scenario_tags(scenario_tags)),
+    }
+    if scenario_label.strip() not in accepted_labels:
+        raise ValueError(f"unsafe scenario_label: {scenario_label}")
+
+
+def _manifest_valid_selection_events(
+    events: Iterable[SelectionEvent],
+    runtime_paths: RuntimePaths,
+) -> tuple[SelectionEvent, ...]:
+    manifests_by_id = {
+        manifest.id: manifest for manifest in list_pack_manifests(runtime_paths)
+    }
+    current_manifest_fingerprint = _runtime_manifest_fingerprint(runtime_paths)
+    valid_events: list[SelectionEvent] = []
+    for event in events:
+        if event.manifest_fingerprint != current_manifest_fingerprint:
+            continue
+        selected_pack_ids = set(event.selected_pack_ids)
+        selected_skill_names = set(event.selected_skill_names)
+        if not selected_pack_ids.issubset(manifests_by_id):
+            continue
+        skill_names_by_pack = {
+            pack_id: {skill.name for skill in manifests_by_id[pack_id].skills}
+            for pack_id in selected_pack_ids
+        }
+        if not selected_skill_names.issubset(
+            set().union(*skill_names_by_pack.values())
+        ):
+            continue
+        if any(
+            not selected_skill_names.intersection(skill_names)
+            for skill_names in skill_names_by_pack.values()
+        ):
+            continue
+        valid_events.append(event)
+    return tuple(valid_events)
+
+
+def _runtime_manifest_fingerprint(runtime_paths: RuntimePaths) -> str:
+    digest = hashlib.sha256()
+    for manifest in sorted(list_pack_manifests(runtime_paths), key=lambda item: item.id):
+        manifest_path = runtime_paths.packs / f"{manifest.id}.toml"
+        digest.update(manifest.id.encode("utf-8"))
+        digest.update(b"\0")
+        if manifest_path.is_file():
+            digest.update(manifest_path.read_bytes())
+        digest.update(b"\0")
+    return f"sha256:{digest.hexdigest()}"
+
+
+def _redacted_runtime_path(path: str | Path, runtime_paths: RuntimePaths) -> str:
+    return _redact_local_paths(str(path), ((runtime_paths.root, "RUNTIME_ROOT"),))
+
+
+def _redact_local_paths(text: str, replacements: Iterable[tuple[Path, str]]) -> str:
+    redacted = text
+    path_replacements: list[tuple[str, str]] = []
+    for path, replacement in replacements:
+        for variant in _path_variants(path):
+            path_replacements.append((variant, replacement))
+    for variant, replacement in sorted(
+        path_replacements,
+        key=lambda item: len(item[0]),
+        reverse=True,
+    ):
+        redacted = redacted.replace(variant, replacement)
+    return redacted.replace("\\", "/")
+
+
+def _path_variants(path: Path) -> tuple[str, ...]:
+    candidates = (
+        path,
+        path.expanduser(),
+        path.expanduser().resolve(strict=False),
+    )
+    variants: set[str] = set()
+    for candidate in candidates:
+        variants.add(str(candidate))
+        variants.add(candidate.as_posix())
+    return tuple(variant for variant in variants if variant)
 
 
 def _scan_from_args(
@@ -472,10 +821,12 @@ def _validate_delete_source_args(args: argparse.Namespace) -> None:
         raise ValueError("--delete-source requires --confirm-delete-source")
 
 
-def _restore_targets(runtime_paths: RuntimePaths, backup_id: str) -> tuple[Path | None, Path]:
+def _restore_targets(runtime_paths: RuntimePaths, backup_id: str) -> tuple[Path | None, Path | None]:
     _safe_component(backup_id, "backup_id")
     metadata_path = runtime_paths.backups / backup_id / "metadata.toml"
     metadata = read_toml(metadata_path)
+    if metadata.get("scope") == "workspace_activation":
+        return None, None
     if "vault_root" not in metadata:
         raise ValueError("backup restore metadata must include vault_root")
     host = str(metadata.get("host", "codex"))
@@ -568,3 +919,11 @@ def _safe_component(value: str, label: str) -> str:
     ):
         raise ValueError(f"unsafe {label}: {value}")
     return value
+
+
+def _csv_tuple(value: str) -> tuple[str, ...]:
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
+def _utc_now_isoformat() -> str:
+    return datetime.now(timezone.utc).isoformat()

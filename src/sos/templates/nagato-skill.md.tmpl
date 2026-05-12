@@ -1,0 +1,15 @@
+---
+name: sos-nagato
+description: "Use when `sos recommend context` should generate workspace-only context guidance."
+---
+# SOS Nagato
+
+Workspace root: `{{workspace_root}}`
+Runtime root: `{{runtime_root}}`
+Learned reference: `{{learned_reference_path}}`
+
+Use `sos recommend context` to inspect the current workspace and choose relevant skills.
+This is workspace-only behavior.
+Read the learned reference path before recommending. If the stub is empty, say there are no learned recommendations yet.
+Do not use hooks.
+Keep context small and selection direct.

@@ -15,6 +15,9 @@ from sos.toml_io import read_toml, write_toml
 METADATA_FILE = "metadata.toml"
 CONFIG_SNAPSHOT = "config.toml"
 VAULT_SNAPSHOT = "vault"
+WORKSPACE_AGENTS_SNAPSHOT = "workspace-agents"
+LEARNED_REFERENCE_SNAPSHOT = "learned-reference.md"
+WORKSPACE_ACTIVATION_SCOPE = "workspace_activation"
 
 
 def create_backup(
@@ -61,6 +64,54 @@ def create_backup(
     )
 
 
+def create_workspace_activation_backup(
+    runtime_paths: RuntimePaths,
+    workspace_root: str | Path,
+    workspace_agents_root: str | Path,
+    learned_reference_target: str | Path,
+    reason: str,
+) -> BackupRecord:
+    runtime_paths.backups.mkdir(parents=True, exist_ok=True)
+    created_at = datetime.now(UTC)
+    backup_id = _reserve_backup_id(runtime_paths.backups, created_at)
+    backup_dir = runtime_paths.backups / backup_id
+    backup_dir.mkdir(parents=True, exist_ok=False)
+
+    workspace_root_path = Path(workspace_root)
+    agents_target = Path(workspace_agents_root)
+    learned_target = Path(learned_reference_target)
+    agents_kind, agents_snapshot = _snapshot_optional_path(
+        agents_target,
+        backup_dir / WORKSPACE_AGENTS_SNAPSHOT,
+    )
+    learned_kind, learned_snapshot = _snapshot_optional_path(
+        learned_target,
+        backup_dir / LEARNED_REFERENCE_SNAPSHOT,
+    )
+    metadata = {
+        "backup_id": backup_id,
+        "created_at": created_at.isoformat(),
+        "reason": reason,
+        "scope": WORKSPACE_ACTIVATION_SCOPE,
+        "workspace_root": str(workspace_root_path),
+        "workspace_agents_target": str(agents_target),
+        "workspace_agents_kind": agents_kind,
+        "learned_reference_target": str(learned_target),
+        "learned_reference_kind": learned_kind,
+    }
+    if agents_snapshot is not None:
+        metadata["workspace_agents_snapshot_path"] = agents_snapshot.as_posix()
+    if learned_snapshot is not None:
+        metadata["learned_reference_snapshot_path"] = learned_snapshot.as_posix()
+    write_toml(backup_dir / METADATA_FILE, metadata)
+
+    return BackupRecord(
+        backup_id=backup_id,
+        created_at=created_at,
+        metadata=metadata,
+    )
+
+
 def list_backups(runtime_paths: RuntimePaths) -> tuple[BackupRecord, ...]:
     if not runtime_paths.backups.is_dir():
         return ()
@@ -82,11 +133,15 @@ def restore_backup(
     runtime_paths: RuntimePaths,
     backup_id: str,
     codex_config_path: str | Path | None,
-    vault_root: str | Path,
+    vault_root: str | Path | None,
     apply: bool,
 ) -> BackupRecord:
     record = _find_backup(runtime_paths, backup_id)
     if not apply:
+        return record
+
+    if record.metadata.get("scope") == WORKSPACE_ACTIVATION_SCOPE:
+        _restore_workspace_activation_backup(runtime_paths, record)
         return record
 
     host = str(record.metadata.get("host", "codex"))
@@ -95,6 +150,8 @@ def restore_backup(
         archive_moves = _planned_archive_restore(runtime_paths)
         _restore_archive_moves(archive_moves)
         if record.vault_path is not None:
+            if vault_root is None:
+                raise ValueError("vault_root is required for vault restore")
             _replace_directory_atomic(record.vault_path, Path(vault_root))
         return record
 
@@ -111,6 +168,8 @@ def restore_backup(
             _replace_file_atomic(record.config_path, config_target)
             config_replaced = True
         if record.vault_path is not None:
+            if vault_root is None:
+                raise ValueError("vault_root is required for vault restore")
             _replace_directory_atomic(record.vault_path, Path(vault_root))
     except Exception:
         if config_replaced and config_target is not None:
@@ -122,6 +181,87 @@ def restore_backup(
             config_rollback_path.unlink()
 
     return record
+
+
+def _snapshot_optional_path(path: Path, snapshot_path: Path) -> tuple[str, Path | None]:
+    if path.is_dir():
+        shutil.copytree(path, snapshot_path)
+        return "dir", snapshot_path
+    if path.exists():
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, snapshot_path)
+        return "file", snapshot_path
+    return "missing", None
+
+
+def _restore_workspace_activation_backup(
+    runtime_paths: RuntimePaths,
+    record: BackupRecord,
+) -> None:
+    metadata = record.metadata
+    workspace_root = Path(str(metadata["workspace_root"]))
+    agents_target = Path(str(metadata["workspace_agents_target"]))
+    learned_target = Path(str(metadata["learned_reference_target"]))
+    _validate_workspace_activation_restore_targets(
+        runtime_paths,
+        workspace_root,
+        agents_target,
+        learned_target,
+    )
+    _restore_snapshot_by_kind(
+        kind=str(metadata["workspace_agents_kind"]),
+        snapshot_path=_optional_path(metadata.get("workspace_agents_snapshot_path")),
+        target=agents_target,
+    )
+    _restore_snapshot_by_kind(
+        kind=str(metadata["learned_reference_kind"]),
+        snapshot_path=_optional_path(metadata.get("learned_reference_snapshot_path")),
+        target=learned_target,
+    )
+
+
+def _validate_workspace_activation_restore_targets(
+    runtime_paths: RuntimePaths,
+    workspace_root: Path,
+    agents_target: Path,
+    learned_target: Path,
+) -> None:
+    expected_agents = workspace_root / ".agents"
+    if agents_target.resolve(strict=False) != expected_agents.resolve(strict=False):
+        raise ValueError("workspace activation backup agents target mismatch")
+    expected_learned = (
+        runtime_paths.state / "recommendations" / "asahina-reference.md"
+    )
+    if learned_target.resolve(strict=False) != expected_learned.resolve(strict=False):
+        raise ValueError("workspace activation backup learned reference target mismatch")
+
+
+def _restore_snapshot_by_kind(
+    *,
+    kind: str,
+    snapshot_path: Path | None,
+    target: Path,
+) -> None:
+    if kind == "missing":
+        _remove_path(target)
+        return
+    if snapshot_path is None:
+        raise ValueError(f"snapshot path missing for {target}")
+    if kind == "dir":
+        _replace_directory_atomic(snapshot_path, target)
+        return
+    if kind == "file":
+        _replace_file_atomic(snapshot_path, target)
+        return
+    raise ValueError(f"unknown snapshot kind: {kind}")
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
+        return
+    if path.exists():
+        path.unlink()
 
 
 def prune_backups(

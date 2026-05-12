@@ -51,6 +51,81 @@ def render_companion_skill(target: str | Path, registry_path: str | Path) -> Non
     atomic_write_text(_skill_file_path(target, "sos-haruhi"), text)
 
 
+def render_nagato_skill(
+    target: str | Path,
+    *,
+    runtime_root: str | Path,
+    workspace_root: str | Path,
+) -> None:
+    runtime_root_path = Path(runtime_root)
+    text = _render_template(
+        "nagato-skill.md.tmpl",
+        {
+            "runtime_root": str(runtime_root_path),
+            "workspace_root": str(workspace_root),
+            "learned_reference_path": str(
+                runtime_root_path / "state" / "recommendations" / "asahina-reference.md"
+            ),
+        },
+    )
+    atomic_write_text(_skill_file_path(target, "sos-nagato"), text)
+
+
+def render_workspace_nagato_skill(
+    target: str | Path,
+    *,
+    runtime_root: str | Path,
+    workspace_root: str | Path,
+) -> None:
+    del runtime_root, workspace_root
+    text = _render_template(
+        "workspace-nagato-skill.md.tmpl",
+        {},
+    )
+    atomic_write_text(_skill_file_path(target, "sos-nagato"), text)
+
+
+def render_asahina_skill(target: str | Path, *, runtime_root: str | Path) -> None:
+    text = _render_template(
+        "asahina-skill.md.tmpl",
+        {
+            "runtime_root": str(runtime_root),
+        },
+    )
+    atomic_write_text(_skill_file_path(target, "sos-asahina"), text)
+
+
+def render_workspace_asahina_skill(target: str | Path, *, runtime_root: str | Path) -> None:
+    del runtime_root
+    text = _render_template(
+        "workspace-asahina-skill.md.tmpl",
+        {},
+    )
+    atomic_write_text(_skill_file_path(target, "sos-asahina"), text)
+
+
+def render_workspace_pack_pointer(target: str | Path, manifest: PackManifest) -> None:
+    pointer_skill = _safe_pointer_skill_name(manifest.pointer_skill)
+    description = _compact_description(manifest)
+    text = _render_template(
+        "workspace-pointer-skill.md.tmpl",
+        {
+            "name": pointer_skill,
+            "description": description,
+            "display_name": manifest.display_name,
+            "pack_id": manifest.id,
+            "manifest_path": f"RUNTIME_ROOT/packs/{manifest.id}.toml",
+            "vault_root": f"RUNTIME_ROOT/vault/{manifest.id}",
+            "activation_command": (
+                f"sos pack activate {manifest.id} "
+                f"--runtime-root RUNTIME_ROOT "
+                f"--sync={manifest.sync_policy}"
+            ),
+        },
+    )
+    atomic_write_text(_skill_file_path(target, pointer_skill), text)
+
+
 def render_v1_active_skills(
     active_root: str | Path,
     registry: Registry,

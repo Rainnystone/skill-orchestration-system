@@ -199,10 +199,22 @@ def test_package_templates_match_repo_templates():
     package_templates = repo_root / "src" / "sos" / "templates"
     repo_templates = repo_root / "templates"
 
-    for name in ("pointer-skill.md.tmpl", "companion-skill.md.tmpl"):
-        assert package_templates.joinpath(name).read_text(encoding="utf-8") == (
-            repo_templates / name
-        ).read_text(encoding="utf-8")
+    for name in (
+        "pointer-skill.md.tmpl",
+        "companion-skill.md.tmpl",
+        "nagato-skill.md.tmpl",
+        "asahina-skill.md.tmpl",
+        "workspace-pointer-skill.md.tmpl",
+        "workspace-nagato-skill.md.tmpl",
+        "workspace-asahina-skill.md.tmpl",
+    ):
+        package_path = package_templates / name
+        repo_path = repo_templates / name
+        assert package_path.exists()
+        assert repo_path.exists()
+        assert package_path.read_text(encoding="utf-8") == repo_path.read_text(
+            encoding="utf-8"
+        )
 
 
 def test_pyproject_packages_sos_template_resources():
