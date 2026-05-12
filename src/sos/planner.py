@@ -386,10 +386,14 @@ def _delete_source_candidate_operation(
     manifest: PackManifest,
     skill: SkillEntry,
 ) -> WriteOperation:
-    _ensure_under(skill.source_path, active_root, "delete source target path")
+    if manifest.host == "claude":
+        target = active_root / ".sos-archive" / manifest.id / skill.name
+    else:
+        target = skill.source_path
+    _ensure_under(target, active_root, "delete source target path")
     return WriteOperation(
         OperationKind.DELETE_SOURCE,
-        target=skill.source_path,
+        target=target,
         metadata={
             "pack_id": manifest.id,
             "skill_name": skill.name,

@@ -348,7 +348,7 @@ def _validate_plan(
     else:
         disabled_skill_md_paths = ()
         archive_operations = _validate_archive_operations(plan, active_root, manifests)
-    delete_source_candidates = _validate_delete_candidates(plan, active_root, manifests)
+    delete_source_candidates = _validate_delete_candidates(plan, active_root, manifests, host)
     return _ValidatedPlan(
         manifests=manifests,
         pointer_targets=pointer_targets,
@@ -579,12 +579,20 @@ def _validate_delete_candidates(
     plan: WritePlan,
     active_root: Path,
     manifests: tuple[PackManifest, ...],
+    host: str,
 ) -> tuple[_DeleteSourceCandidate, ...]:
-    expected = tuple(
-        (skill.source_path, manifest.id, skill.name)
-        for manifest in manifests
-        for skill in manifest.skills
-    )
+    if host == "codex":
+        expected = tuple(
+            (skill.source_path, manifest.id, skill.name)
+            for manifest in manifests
+            for skill in manifest.skills
+        )
+    else:  # claude
+        expected = tuple(
+            (active_root / ".sos-archive" / manifest.id / skill.name, manifest.id, skill.name)
+            for manifest in manifests
+            for skill in manifest.skills
+        )
     actual: list[tuple[Path, str, str]] = []
     candidates: list[_DeleteSourceCandidate] = []
     for operation in _operations_of_kind(plan, OperationKind.DELETE_SOURCE):

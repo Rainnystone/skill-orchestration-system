@@ -263,3 +263,41 @@ def test_apply_rollback_unwinds_only_completed_archive_moves(tmp_path, monkeypat
     # Second skill never moved: original still in place, no archive entry.
     assert (skill_root / "beta-skill" / "SKILL.md").is_file()
     assert not (skill_root / ".sos-archive" / "beta" / "beta-skill").exists()
+
+
+def test_claude_delete_source_removes_archive_entry(tmp_path):
+    from sos.apply import apply_write_plan
+    from sos.planner import build_pack_apply_plan
+    from sos.paths import RuntimePaths
+    from sos.propose import PackProposal
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    demo_dir = skill_root / "demo-skill"
+    demo_dir.mkdir()
+    (demo_dir / "SKILL.md").write_text(
+        "---\nname: demo-skill\ndescription: demo\n---\n",
+        encoding="utf-8",
+    )
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+    proposals = (PackProposal(pack_id="demo", skill_names=("demo-skill",), reason="test"),)
+    plan = build_pack_apply_plan(
+        runtime_paths, skill_root, codex_config_path, proposals, host="claude"
+    )
+
+    result = apply_write_plan(
+        plan,
+        runtime_paths,
+        codex_config_path,
+        skill_root,
+        apply=True,
+        host="claude",
+        delete_source=True,
+        confirm_delete_source="demo",
+    )
+
+    assert result.status == "applied"
+    archived = skill_root / ".sos-archive" / "demo" / "demo-skill"
+    assert not archived.exists()
