@@ -615,3 +615,33 @@ def test_operation_phases_include_move_and_restore_from_archive():
     assert OperationKind.RESTORE_FROM_ARCHIVE in _OPERATION_PHASES
     # MOVE_TO_ARCHIVE shares a phase with DISABLE_CODEX_SKILL (both are disable-equivalent steps).
     assert _OPERATION_PHASES[OperationKind.MOVE_TO_ARCHIVE] == _OPERATION_PHASES[OperationKind.DISABLE_CODEX_SKILL]
+
+
+def test_apply_rejects_claude_only_op_when_host_codex(tmp_path):
+    """Symmetric to the codex-only-in-claude case: a codex plan must not contain MOVE_TO_ARCHIVE."""
+    from sos.apply import apply_write_plan
+    from sos.models import OperationKind, WriteOperation, WritePlan
+    from sos.paths import RuntimePaths
+    import pytest
+
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    plan = WritePlan(
+        plan_id="plan-test",
+        host="codex",
+        operations=(
+            WriteOperation(
+                OperationKind.MOVE_TO_ARCHIVE,
+                source=tmp_path / "root" / "skill",
+                target=tmp_path / "root" / ".sos-archive" / "pack" / "skill",
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="claude-only"):
+        apply_write_plan(
+            plan,
+            runtime_paths,
+            tmp_path / "config.toml",
+            tmp_path / "root",
+            apply=False,
+            host="codex",
+        )

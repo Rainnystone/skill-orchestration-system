@@ -150,15 +150,16 @@ def apply_write_plan(
 
         render_v1_active_skills(active_root, registry, baselined_manifests)
 
-        config_backup_path = backup.config_path or (
-            runtime_paths.backups / backup.backup_id / "config.toml"
-        )
-        disable_skill_paths_with_backup(
-            config_path,
-            validated.disabled_skill_md_paths,
-            backup_path=config_backup_path,
-            apply=True,
-        )
+        if host == "codex":
+            config_backup_path = backup.config_path or (
+                runtime_paths.backups / backup.backup_id / "config.toml"
+            )
+            disable_skill_paths_with_backup(
+                config_path,
+                validated.disabled_skill_md_paths,
+                backup_path=config_backup_path,
+                apply=True,
+            )
 
         for path in source_deletion_paths:
             _remove_path(path)
