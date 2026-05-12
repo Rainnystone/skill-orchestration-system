@@ -5,15 +5,14 @@
 Your agent skills should feel like a capable club room, not a storage closet
 where every old experiment has somehow earned permanent residency.
 
-Skill Orchestration System, or SOS, helps Codex users keep a growing local
-skill library organized. It scans local Agent Skills, proposes task-focused
-packs, writes reviewable plans before touching important files, and keeps
-rollback paths nearby. A shocking idea, I know: let the strange club do the
-paperwork before it rearranges the furniture.
+Skill Orchestration System, or SOS, helps Codex and Claude Code users keep a
+growing local skill library organized. It scans local Agent Skills, proposes
+task-focused packs, writes reviewable plans before touching important files, and
+keeps rollback paths nearby. A shocking idea, I know: let the strange club do
+the paperwork before it rearranges the furniture.
 
-SOS is Codex-first today. Claude Code compatibility is kept in the structure of
-the generated skills, but Claude-specific installation and settings writes are
-not wired up yet.
+SOS supports Codex and Claude Code. Use `--host {codex,claude}` to select the
+host per write command.
 
 ## Why You Need SOS
 
@@ -261,6 +260,26 @@ After installation, the console script is available:
 sos --version
 ```
 
+### Claude Code Host
+
+Claude Code uses the same scan, plan, dry-run, apply rhythm, because apparently
+one club can have more than one doorway. Use `--host claude`; the skill root is
+usually `~/.claude/skills`, or `.claude/skills` inside a project workspace.
+
+```bash
+sos scan --root ~/.claude/skills
+sos propose --root ~/.claude/skills
+sos plan --host claude --root ~/.claude/skills --runtime-root ~/.sos --out plan.toml
+sos apply --plan plan.toml
+sos apply --plan plan.toml --host claude --apply
+```
+
+For `sos plan` and `sos changes`, `--codex-config` is required when
+`--host codex` and rejected when `--host claude`. `sos apply` reads the host
+from the plan TOML, so apply commands do not take `--codex-config` directly.
+After apply, disabled Claude source skills move under
+`~/.claude/skills/.sos-archive/<pack-id>/<name>/`; restore moves them back.
+
 ## Technical Reference
 
 ### Safety Model
@@ -354,9 +373,9 @@ broad private absolute paths.
 | --- | --- | --- |
 | `sos scan --root <path> [--codex-config <path>]` | List enabled skills under a root. | No |
 | `sos propose --root <path>` | Propose pack candidates from scanned skills. | No |
-| `sos plan --root <path> --runtime-root <path> --codex-config <path> --out <path>` | Write a reviewable plan file. | Only the plan file |
-| `sos apply --plan <path>` | Summarize a plan. | No |
-| `sos apply --plan <path> --apply` | Copy skills, write manifests and pointers, disable originals, and create backups. | Yes |
+| `sos plan --host <host> --root <path> --runtime-root <path> --codex-config <path> --out <path>` | Write a reviewable plan file. | Only the plan file |
+| `sos apply --plan <path> [--host <host>]` | Summarize a plan; host inferred from plan when omitted. | No |
+| `sos apply --plan <path> [--host <host>] --apply` | Copy skills, write manifests and pointers, disable originals (Codex: config write; Claude: move to `.sos-archive`), and create backups. | Yes |
 | `sos pack activate <pack> --runtime-root <path>` | Activate a pack and apply eligible clean syncs. | Sometimes |
 | `sos pack list --runtime-root <path>` | List runtime packs. | No |
 | `sos pack show <pack> --runtime-root <path>` | Show one pack manifest and its managed skills. | No |
@@ -379,13 +398,12 @@ broad private absolute paths.
 
 ### Compatibility
 
-SOS is Codex-first. Its tested write path can update Codex skill configuration
-after creating backups and only when `--apply` is used.
+SOS supports two hosts:
 
-Claude Code compatibility is structural for now: generated skills are ordinary
-`SKILL.md` folders, and pack metadata is stored in plain TOML manifests. SOS
-does not yet provide a Claude Code installer, settings writer, or integration
-test suite.
+- **Codex**: write path updates Codex skill configuration after creating backups and only when `--apply` is used.
+- **Claude Code**: write path moves disabled source folders into `<skill-root>/.sos-archive/<pack-id>/<name>/` so Claude no longer discovers them, after creating a vault backup and only when `--apply` is used.
+
+Generated skills are ordinary `SKILL.md` folders, and pack metadata is stored in plain TOML manifests. The host is selected per write command via `--host {codex,claude}`.
 
 ### Development
 

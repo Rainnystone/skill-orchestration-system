@@ -268,3 +268,78 @@ def test_registry_supports_status_without_rescan(tmp_path: Path):
     assert dict(loaded.aliases) == {"work": "work"}
     assert loaded.backup_generations == ("backup-001", "backup-002")
     assert loaded.last_operation_ids == ("op-apply", "op-pointer")
+
+
+def test_manifest_round_trips_host_field(tmp_path):
+    from sos.manifest import load_pack_manifest, save_pack_manifest
+    from sos.models import PackManifest
+
+    manifest_path = tmp_path / "claude.toml"
+    manifest = PackManifest(
+        id="claude",
+        display_name="Claude",
+        pointer_skill="sos-claude",
+        host="claude",
+    )
+    save_pack_manifest(manifest_path, manifest)
+    loaded = load_pack_manifest(manifest_path)
+    assert loaded.host == "claude"
+
+
+def test_manifest_defaults_host_to_codex_when_absent(tmp_path):
+    from sos.manifest import load_pack_manifest
+    from sos.toml_io import write_toml
+
+    manifest_path = tmp_path / "legacy.toml"
+    write_toml(manifest_path, {
+        "id": "legacy",
+        "display_name": "Legacy",
+        "pointer_skill": "sos-legacy",
+    })
+    loaded = load_pack_manifest(manifest_path)
+    assert loaded.host == "codex"
+
+
+def test_manifest_round_trips_archived_source_path(tmp_path):
+    from sos.manifest import load_pack_manifest, save_pack_manifest
+    from sos.models import PackManifest, SkillEntry
+    from pathlib import Path
+
+    manifest_path = tmp_path / "claude.toml"
+    skill = SkillEntry(
+        name="x",
+        source_path=Path("/root/x"),
+        vault_path=Path("/runtime/vault/claude/x"),
+        archived_source_path=Path("/root/.sos-archive/claude/x"),
+    )
+    manifest = PackManifest(
+        id="claude",
+        display_name="Claude",
+        pointer_skill="sos-claude",
+        host="claude",
+        skills=(skill,),
+    )
+    save_pack_manifest(manifest_path, manifest)
+    loaded = load_pack_manifest(manifest_path)
+    assert loaded.skills[0].archived_source_path == Path("/root/.sos-archive/claude/x")
+
+
+def test_manifest_skill_archived_path_absent_loads_as_none(tmp_path):
+    from sos.manifest import load_pack_manifest
+    from sos.toml_io import write_toml
+
+    manifest_path = tmp_path / "legacy.toml"
+    write_toml(manifest_path, {
+        "id": "legacy",
+        "display_name": "Legacy",
+        "pointer_skill": "sos-legacy",
+        "skills": [
+            {
+                "name": "x",
+                "source_path": "/root/x",
+                "vault_path": "/vault/legacy/x",
+            },
+        ],
+    })
+    loaded = load_pack_manifest(manifest_path)
+    assert loaded.skills[0].archived_source_path is None

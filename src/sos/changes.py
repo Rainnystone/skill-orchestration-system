@@ -54,12 +54,12 @@ def detect_changes(
         )
     )
     source_missing = _sort_skills(
-        skill for skill in managed_skills if not skill.source_path.exists()
+        skill for skill in managed_skills if _source_missing(skill)
     )
     source_changed = _sort_skills(
         skill
         for skill in managed_skills
-        if _source_changed(skill)
+        if not _source_missing(skill) and _source_changed(skill)
     )
     vault_changed = _sort_skills(
         skill
@@ -155,8 +155,19 @@ def _load_current_manifests(
     return tuple(manifests)
 
 
+def _effective_source_path(skill: SkillEntry) -> Path:
+    if skill.archived_source_path is not None:
+        return skill.archived_source_path
+    return skill.source_path
+
+
+def _source_missing(skill: SkillEntry) -> bool:
+    return not _effective_source_path(skill).exists()
+
+
 def _source_changed(skill: SkillEntry) -> bool:
-    source_fingerprint = _existing_fingerprint(skill.source_path)
+    effective = _effective_source_path(skill)
+    source_fingerprint = _existing_fingerprint(effective)
     if source_fingerprint is None:
         return False
     if skill.last_source_fingerprint:
@@ -173,7 +184,7 @@ def _vault_changed(skill: SkillEntry) -> bool:
     if skill.last_vault_fingerprint:
         return vault_fingerprint != skill.last_vault_fingerprint
 
-    source_fingerprint = _existing_fingerprint(skill.source_path)
+    source_fingerprint = _existing_fingerprint(_effective_source_path(skill))
     return source_fingerprint is not None and vault_fingerprint != source_fingerprint
 
 

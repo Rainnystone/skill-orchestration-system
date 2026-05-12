@@ -86,6 +86,7 @@ def _pack_manifest_from_dict(data: dict[str, Any]) -> PackManifest:
         vault_root=Path(vault_root) if vault_root else None,
         skills=tuple(_skill_entry_from_dict(skill) for skill in data.get("skills", ())),
         triggers=tuple(dict(trigger) for trigger in data.get("triggers", ())),
+        host=data.get("host", "codex"),
     )
 
 
@@ -97,6 +98,7 @@ def _pack_manifest_to_dict(manifest: PackManifest) -> dict[str, Any]:
         "description": manifest.description,
         "pointer_skill": manifest.pointer_skill,
         "sync_policy": manifest.sync_policy,
+        "host": manifest.host,
     }
     if manifest.vault_root is not None:
         data["paths"] = {"vault_root": str(manifest.vault_root)}
@@ -106,6 +108,7 @@ def _pack_manifest_to_dict(manifest: PackManifest) -> dict[str, Any]:
 
 
 def _skill_entry_from_dict(data: dict[str, Any]) -> SkillEntry:
+    archived_source_value = data.get("archived_source_path")
     return SkillEntry(
         name=data["name"],
         source_path=Path(data["source_path"]),
@@ -116,11 +119,12 @@ def _skill_entry_from_dict(data: dict[str, Any]) -> SkillEntry:
         last_source_fingerprint=data.get("last_source_fingerprint", ""),
         last_vault_fingerprint=data.get("last_vault_fingerprint", ""),
         last_synced_at=data.get("last_synced_at", ""),
+        archived_source_path=Path(archived_source_value) if archived_source_value else None,
     )
 
 
 def _skill_entry_to_dict(skill: SkillEntry) -> dict[str, Any]:
-    return {
+    data: dict[str, Any] = {
         "name": skill.name,
         "source_path": str(skill.source_path),
         "vault_path": str(skill.vault_path),
@@ -131,6 +135,9 @@ def _skill_entry_to_dict(skill: SkillEntry) -> dict[str, Any]:
         "last_vault_fingerprint": skill.last_vault_fingerprint,
         "last_synced_at": skill.last_synced_at,
     }
+    if skill.archived_source_path is not None:
+        data["archived_source_path"] = str(skill.archived_source_path)
+    return data
 
 
 def _duplicates(values: Iterable[str]) -> tuple[str, ...]:

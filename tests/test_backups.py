@@ -229,3 +229,114 @@ def test_validate_backup_id_component_rejects_backslash():
     from sos.backups import _validate_backup_id_component
     with pytest.raises(ValueError, match="unsafe"):
         _validate_backup_id_component("..\\outside")
+
+
+def test_restore_claude_pack_moves_archive_back(tmp_path):
+    """End-to-end: apply Claude plan, then restore moves archive contents back to source."""
+    from sos.apply import apply_write_plan
+    from sos.planner import build_pack_apply_plan
+    from sos.paths import RuntimePaths
+    from sos.propose import PackProposal
+    from sos.backups import restore_backup
+    from sos.toml_io import read_toml, write_toml
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    (skill_root / "demo-skill").mkdir()
+    (skill_root / "demo-skill" / "SKILL.md").write_text(
+        "---\nname: demo-skill\ndescription: demo\n---\n", encoding="utf-8"
+    )
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+    proposals = (PackProposal(pack_id="demo", skill_names=("demo-skill",), reason="test"),)
+    plan = build_pack_apply_plan(
+        runtime_paths, skill_root, codex_config_path, proposals, host="claude"
+    )
+    apply_result = apply_write_plan(
+        plan,
+        runtime_paths,
+        codex_config_path,
+        skill_root,
+        apply=True,
+        host="claude",
+    )
+    assert apply_result.status == "applied"
+    assert not (skill_root / "demo-skill" / "SKILL.md").is_file()
+
+    # Annotate metadata as the CLI would.
+    backup_dir = runtime_paths.backups / apply_result.backup_id
+    metadata_path = backup_dir / "metadata.toml"
+    metadata = read_toml(metadata_path)
+    write_toml(metadata_path, {
+        **metadata,
+        "vault_root": str(runtime_paths.vault),
+        "active_skill_root": str(skill_root),
+        "host": "claude",
+    })
+
+    restore_backup(
+        runtime_paths,
+        apply_result.backup_id,
+        codex_config_path,
+        runtime_paths.vault,
+        apply=True,
+    )
+    assert (skill_root / "demo-skill" / "SKILL.md").is_file()
+    archived = skill_root / ".sos-archive" / "demo" / "demo-skill"
+    assert not archived.exists()
+
+
+def test_restore_refuses_when_archive_missing(tmp_path):
+    """Restore should error if the .sos-archive entry is gone (user manually deleted it)."""
+    import shutil
+    import pytest
+    from sos.apply import apply_write_plan
+    from sos.planner import build_pack_apply_plan
+    from sos.paths import RuntimePaths
+    from sos.propose import PackProposal
+    from sos.backups import restore_backup
+    from sos.toml_io import read_toml, write_toml
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    (skill_root / "demo-skill").mkdir()
+    (skill_root / "demo-skill" / "SKILL.md").write_text(
+        "---\nname: demo-skill\ndescription: demo\n---\n", encoding="utf-8"
+    )
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+    proposals = (PackProposal(pack_id="demo", skill_names=("demo-skill",), reason="test"),)
+    plan = build_pack_apply_plan(
+        runtime_paths, skill_root, codex_config_path, proposals, host="claude"
+    )
+    apply_result = apply_write_plan(
+        plan,
+        runtime_paths,
+        codex_config_path,
+        skill_root,
+        apply=True,
+        host="claude",
+    )
+
+    metadata_path = runtime_paths.backups / apply_result.backup_id / "metadata.toml"
+    metadata = read_toml(metadata_path)
+    write_toml(metadata_path, {
+        **metadata,
+        "vault_root": str(runtime_paths.vault),
+        "active_skill_root": str(skill_root),
+        "host": "claude",
+    })
+
+    # Manually nuke the archive
+    shutil.rmtree(skill_root / ".sos-archive")
+
+    with pytest.raises(ValueError, match="archive"):
+        restore_backup(
+            runtime_paths,
+            apply_result.backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )

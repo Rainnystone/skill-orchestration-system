@@ -21,7 +21,7 @@ def test_sos_skill_package_has_agent_skill_shape():
         "safety-model.md",
         "execution-modes.md",
         "codex.md",
-        "claude-code-future.md",
+        "claude-code.md",
     ):
         assert (REFERENCES / name).is_file()
     assert (SCRIPTS / "sos_doctor.py").is_file()
@@ -44,7 +44,7 @@ def test_sos_skill_uses_progressive_disclosure_references():
         "references/workflows.md",
         "references/safety-model.md",
         "references/codex.md",
-        "references/claude-code-future.md",
+        "references/claude-code.md",
     ):
         assert reference in text
     assert "Do not load every reference up front" in text
@@ -89,13 +89,6 @@ def test_sos_skill_references_do_not_defer_completed_readme_work():
         text = _read(path)
         assert "README rewrite is deferred" not in text, path
 
-
-def test_claude_code_reference_is_future_only():
-    text = _read(REFERENCES / "claude-code-future.md")
-    assert "not implemented in this phase" in text
-    assert "settings, commands, or installer" in text.lower()
-    assert "Do not claim Claude Code support is complete" in text
-    assert "separate approved implementation packet" in text
 
 
 def test_public_skill_files_do_not_contain_private_local_paths():
@@ -149,7 +142,8 @@ def test_workflows_include_pack_inspection_changes_and_skill_selection():
     assert "pack list --runtime-root RUNTIME_ROOT" in text
     assert "pack show PACK_ID --runtime-root RUNTIME_ROOT" in text
     assert "Detect New Or Changed Skills" in text
-    assert "changes --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --codex-config CODEX_CONFIG" in text
+    assert "changes" in text
+    assert "--codex-config CODEX_CONFIG" in text
     assert "Select A Skill Inside A Pack" in text
     assert "exactly against manifest `skills.name`" in text
 
@@ -160,3 +154,31 @@ def test_workflows_explain_reviewable_pack_head_drafting():
     assert "agent routing" in text
     assert "reviewable plan" in text
     assert "must not call a model" in text
+
+
+def test_claude_code_reference_present():
+    from pathlib import Path
+    path = Path(".agents/skills/sos/references/claude-code.md")
+    assert path.is_file()
+    text = path.read_text(encoding="utf-8")
+    assert "--host claude" in text
+    assert ".sos-archive" in text
+
+
+def test_claude_code_future_reference_absent():
+    from pathlib import Path
+    path = Path(".agents/skills/sos/references/claude-code-future.md")
+    assert not path.exists()
+
+
+def test_workflows_mentions_host_resolution():
+    from pathlib import Path
+    text = Path(".agents/skills/sos/references/workflows.md").read_text(encoding="utf-8")
+    assert "Resolve Host First" in text
+    assert "--host" in text
+
+
+def test_safety_model_mentions_archive_integrity():
+    from pathlib import Path
+    text = Path(".agents/skills/sos/references/safety-model.md").read_text(encoding="utf-8")
+    assert ".sos-archive" in text

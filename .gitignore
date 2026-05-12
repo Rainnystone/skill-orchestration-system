@@ -19,6 +19,7 @@ venv/
 .sos/
 sos-runtime/
 plan.toml
+.worktrees/
 
 # Local agent planning and archival workspace.
 # These files may contain local paths, private notes, or temporary work records.

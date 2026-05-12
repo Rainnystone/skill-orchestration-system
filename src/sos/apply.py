@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from sos._archive import ARCHIVE_DIR_NAME, ArchiveMove, execute_move_to_archive, rollback_archive_moves
 from sos.backups import create_backup
 from sos.codex_config import disable_skill_paths_with_backup
 from sos.fingerprint import fingerprint_dir
@@ -48,6 +49,7 @@ class _ValidatedPlan:
     pointer_targets: tuple[Path, ...]
     disabled_skill_md_paths: tuple[Path, ...]
     delete_source_candidates: tuple["_DeleteSourceCandidate", ...]
+    archive_operations: tuple[WriteOperation, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -72,7 +74,9 @@ _OPERATION_PHASES = {
     OperationKind.WRITE_REGISTRY: 3,
     OperationKind.WRITE_POINTER: 4,
     OperationKind.DISABLE_CODEX_SKILL: 5,
+    OperationKind.MOVE_TO_ARCHIVE: 5,
     OperationKind.DELETE_SOURCE: 6,
+    OperationKind.RESTORE_FROM_ARCHIVE: 7,
 }
 
 
@@ -83,13 +87,20 @@ def apply_write_plan(
     active_skill_root: str | Path,
     apply: bool,
     *,
+    host: str = "codex",
     delete_source: bool = False,
     confirm_delete_source: str | None = None,
     delete_source_paths: tuple[str | Path, ...] | None = None,
 ) -> ApplyResult:
+    if host not in {"codex", "claude"}:
+        raise ValueError(f"unsupported host: {host}")
+    if plan.host != host:
+        raise ValueError(
+            f"plan host {plan.host!r} does not match --host {host!r}"
+        )
     config_path = Path(codex_config_path)
     active_root = Path(active_skill_root)
-    validated = _validate_plan(plan, runtime_paths, config_path, active_root)
+    validated = _validate_plan(plan, runtime_paths, config_path, active_root, host)
     source_deletion_paths = _validated_source_deletion_paths(
         validated.delete_source_candidates,
         apply=apply,
@@ -113,6 +124,8 @@ def apply_write_plan(
         config_path,
         source_deletion_paths,
     )
+    archive_journal: list[ArchiveMove] = []
+    archive_map: dict[Path, Path] = {}
 
     try:
         for operation in _operations_of_kind(plan, OperationKind.COPY_SKILL):
@@ -121,7 +134,14 @@ def apply_write_plan(
                 _required_path(operation.target),
             )
 
-        baselined_manifests = _with_initial_fingerprints(validated.manifests)
+        if host == "claude":
+            for operation in _operations_of_kind(plan, OperationKind.MOVE_TO_ARCHIVE):
+                execute_move_to_archive(operation, archive_journal)
+                archive_map[_required_path(operation.source)] = _required_path(operation.target)
+
+        baselined_manifests = _with_initial_fingerprints(
+            validated.manifests, archive_map=archive_map
+        )
         for operation, manifest in zip(
             _operations_of_kind(plan, OperationKind.WRITE_MANIFEST),
             baselined_manifests,
@@ -141,21 +161,23 @@ def apply_write_plan(
 
         render_v1_active_skills(active_root, registry, baselined_manifests)
 
-        config_backup_path = backup.config_path or (
-            runtime_paths.backups / backup.backup_id / "config.toml"
-        )
-        disable_skill_paths_with_backup(
-            config_path,
-            validated.disabled_skill_md_paths,
-            backup_path=config_backup_path,
-            apply=True,
-        )
+        if host == "codex":
+            config_backup_path = backup.config_path or (
+                runtime_paths.backups / backup.backup_id / "config.toml"
+            )
+            disable_skill_paths_with_backup(
+                config_path,
+                validated.disabled_skill_md_paths,
+                backup_path=config_backup_path,
+                apply=True,
+            )
 
         for path in source_deletion_paths:
             _remove_path(path)
     except Exception as error:
         rollback_message = ""
         try:
+            rollback_archive_moves(tuple(archive_journal))
             _restore_snapshots(snapshots)
         except Exception as rollback_error:
             rollback_message = f"; rollback failed: {rollback_error}"
@@ -178,17 +200,23 @@ def apply_write_plan(
 
 def _with_initial_fingerprints(
     manifests: tuple[PackManifest, ...],
+    *,
+    archive_map: dict[Path, Path] | None = None,
 ) -> tuple[PackManifest, ...]:
     synced_at = datetime.now(timezone.utc).isoformat()
+    mapping = archive_map or {}
     return tuple(
         replace(
             manifest,
             skills=tuple(
                 replace(
                     skill,
-                    last_source_fingerprint=fingerprint_dir(skill.source_path),
+                    last_source_fingerprint=fingerprint_dir(
+                        mapping.get(skill.source_path, skill.source_path)
+                    ),
                     last_vault_fingerprint=fingerprint_dir(skill.vault_path),
                     last_synced_at=synced_at,
+                    archived_source_path=mapping.get(skill.source_path),
                 )
                 for skill in manifest.skills
             ),
@@ -297,25 +325,36 @@ def _validate_plan(
     runtime_paths: RuntimePaths,
     config_path: Path,
     active_root: Path,
+    host: str,
 ) -> _ValidatedPlan:
     _validate_operation_kinds_and_order(plan.operations)
-    _validate_backup_operations(plan, runtime_paths, config_path)
+    _validate_host_operation_set(plan.operations, host)
+    if host == "codex":
+        _validate_backup_operations(plan, runtime_paths, config_path)
+    else:  # host == "claude"
+        _validate_backup_vault_only(plan, runtime_paths)
     manifests = _validated_manifests(plan, runtime_paths, active_root)
     _validate_copy_operations(plan, manifests, active_root, runtime_paths)
     _validate_registry_operation(plan, runtime_paths, manifests)
     pointer_targets = _validate_pointer_operations(plan, active_root, manifests)
-    disabled_skill_md_paths = _validate_disable_operations(
-        plan,
-        active_root,
-        config_path,
-        manifests,
-    )
-    delete_source_candidates = _validate_delete_candidates(plan, active_root, manifests)
+    if host == "codex":
+        disabled_skill_md_paths = _validate_disable_operations(
+            plan,
+            active_root,
+            config_path,
+            manifests,
+        )
+        archive_operations: tuple[WriteOperation, ...] = ()
+    else:
+        disabled_skill_md_paths = ()
+        archive_operations = _validate_archive_operations(plan, active_root, manifests)
+    delete_source_candidates = _validate_delete_candidates(plan, active_root, manifests, host)
     return _ValidatedPlan(
         manifests=manifests,
         pointer_targets=pointer_targets,
         disabled_skill_md_paths=disabled_skill_md_paths,
         delete_source_candidates=delete_source_candidates,
+        archive_operations=archive_operations,
     )
 
 
@@ -328,6 +367,32 @@ def _validate_operation_kinds_and_order(operations: tuple[WriteOperation, ...]) 
         if phase < current_phase:
             raise ValueError(f"unexpected operation order at {operation.kind.value}")
         current_phase = phase
+
+
+def _validate_host_operation_set(
+    operations: tuple[WriteOperation, ...], host: str
+) -> None:
+    kinds = {operation.kind for operation in operations}
+    codex_only = {OperationKind.BACKUP_CODEX_CONFIG, OperationKind.DISABLE_CODEX_SKILL}
+    claude_only = {OperationKind.MOVE_TO_ARCHIVE}
+    if host == "codex" and kinds & claude_only:
+        raise ValueError(f"claude-only operations in codex plan: {sorted(k.value for k in kinds & claude_only)}")
+    if host == "claude" and kinds & codex_only:
+        raise ValueError(f"codex-only operations in claude plan: {sorted(k.value for k in kinds & codex_only)}")
+
+
+def _validate_backup_vault_only(
+    plan: WritePlan,
+    runtime_paths: RuntimePaths,
+) -> None:
+    backup_vault = _single_operation(plan, OperationKind.BACKUP_VAULT)
+    if _required_path(backup_vault.source) != runtime_paths.vault:
+        raise ValueError("backup vault source does not match runtime vault")
+    _ensure_under(
+        _required_path(backup_vault.target),
+        runtime_paths.backups,
+        "vault backup target path",
+    )
 
 
 def _validate_backup_operations(
@@ -480,16 +545,54 @@ def _validate_disable_operations(
     return actual_paths
 
 
+def _validate_archive_operations(
+    plan: WritePlan,
+    active_root: Path,
+    manifests: tuple[PackManifest, ...],
+) -> tuple[WriteOperation, ...]:
+    expected = tuple(
+        (skill.source_path, active_root / ARCHIVE_DIR_NAME / manifest.id / skill.name)
+        for manifest in manifests
+        for skill in manifest.skills
+    )
+    operations = _operations_of_kind(plan, OperationKind.MOVE_TO_ARCHIVE)
+    actual = tuple(
+        (_required_path(operation.source), _required_path(operation.target))
+        for operation in operations
+    )
+
+    if actual != expected:
+        raise ValueError("archive operations do not match manifest skills")
+
+    archive_root = active_root / ARCHIVE_DIR_NAME
+    for operation, (source, target) in zip(operations, actual, strict=True):
+        _ensure_under(source, active_root, "archive source path")
+        _ensure_under(target, archive_root, "archive target path")
+        if _is_plugin_cache_path(source):
+            raise ValueError(f"refusing to archive source path inside plugin cache: {source}")
+        if operation.metadata.get("host") != "claude":
+            raise ValueError("archive operation metadata must declare host=claude")
+    return operations
+
+
 def _validate_delete_candidates(
     plan: WritePlan,
     active_root: Path,
     manifests: tuple[PackManifest, ...],
+    host: str,
 ) -> tuple[_DeleteSourceCandidate, ...]:
-    expected = tuple(
-        (skill.source_path, manifest.id, skill.name)
-        for manifest in manifests
-        for skill in manifest.skills
-    )
+    if host == "codex":
+        expected = tuple(
+            (skill.source_path, manifest.id, skill.name)
+            for manifest in manifests
+            for skill in manifest.skills
+        )
+    else:  # claude
+        expected = tuple(
+            (active_root / ARCHIVE_DIR_NAME / manifest.id / skill.name, manifest.id, skill.name)
+            for manifest in manifests
+            for skill in manifest.skills
+        )
     actual: list[tuple[Path, str, str]] = []
     candidates: list[_DeleteSourceCandidate] = []
     for operation in _operations_of_kind(plan, OperationKind.DELETE_SOURCE):
@@ -567,7 +670,11 @@ def _validated_source_deletion_paths(
             raise ValueError("delete source confirmation does not match candidate pack id")
         if _is_plugin_cache_path(candidate.path):
             raise ValueError(f"refusing to delete source path inside plugin cache: {candidate.path}")
-        if _is_claude_specific_path(candidate.path) and not exact_selection:
+        if (
+            _is_claude_specific_path(candidate.path)
+            and not _is_archive_path(candidate.path)
+            and not exact_selection
+        ):
             raise ValueError(
                 "Claude-specific source paths require exact deletion path selection"
             )
@@ -583,12 +690,18 @@ def _is_plugin_cache_path(path: Path) -> bool:
     parts = path.resolve(strict=False).parts
     return any(
         parts[index : index + 3] == (".codex", "plugins", "cache")
+        or parts[index : index + 3] == (".claude", "plugins", "cache")
         for index in range(len(parts) - 2)
     )
 
 
 def _is_claude_specific_path(path: Path) -> bool:
     return ".claude" in path.resolve(strict=False).parts
+
+
+def _is_archive_path(path: Path) -> bool:
+    from sos._archive import ARCHIVE_DIR_NAME
+    return ARCHIVE_DIR_NAME in path.resolve(strict=False).parts
 
 
 def _operations_of_kind(
@@ -624,6 +737,7 @@ def _pack_manifest_from_metadata(data: Mapping[str, Any]) -> PackManifest:
             {str(key): str(value) for key, value in _required_mapping(trigger).items()}
             for trigger in data.get("triggers", ())
         ),
+        host=str(data.get("host", "codex")),
     )
 
 

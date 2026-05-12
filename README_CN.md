@@ -4,9 +4,9 @@
 
 你的 agent skills 应该像一间能派上用场的活动室，而不是一个越塞越满、最后谁也不敢打开的杂物柜。
 
-Skill Orchestration System，简称 SOS，是给 Codex 用户整理本地 Agent Skills 的工具。它会扫描本地 skills，按任务提出 pack 建议，在真正写文件之前先生成可审查的计划，并且把备份、回滚和状态记录放在手边。听起来很朴素，但既然我们已经被拉进了这个奇怪的 SOS 团式工作流，至少得让它不要把房间弄得更乱。
+Skill Orchestration System，简称 SOS，是给 Codex 和 Claude Code 用户整理本地 Agent Skills 的工具。它会扫描本地 skills，按任务提出 pack 建议，在真正写文件之前先生成可审查的计划，并且把备份、回滚和状态记录放在手边。听起来很朴素，但既然我们已经被拉进了这个奇怪的 SOS 团式工作流，至少得让它不要把房间弄得更乱。
 
-当前 SOS 以 Codex 为主。Claude Code 兼容性保留在生成 skill 的结构里，但 Claude 专用安装器、settings 写入和完整集成测试还没有接上。
+SOS 同时支持 Codex 和 Claude Code 两种宿主。通过每条写入命令的 `--host {codex,claude}` 参数选择宿主。
 
 ## 为什么你需要 SOS
 
@@ -221,6 +221,20 @@ python -m sos --version
 sos --version
 ```
 
+### Claude Code 宿主
+
+Claude Code 使用同一套 scan、plan、dry-run、apply 节奏。毕竟一个奇怪社团有两个入口也不算太离谱。使用 `--host claude`；skill root 通常是 `~/.claude/skills`，项目级工作区里也可以是 `.claude/skills`。
+
+```bash
+sos scan --root ~/.claude/skills
+sos propose --root ~/.claude/skills
+sos plan --host claude --root ~/.claude/skills --runtime-root ~/.sos --out plan.toml
+sos apply --plan plan.toml
+sos apply --plan plan.toml --host claude --apply
+```
+
+对 `sos plan` 和 `sos changes` 来说，`--host codex` 需要 `--codex-config`，`--host claude` 会拒绝 `--codex-config`。`sos apply` 会从 plan TOML 里读取 host，所以 apply 命令本身不直接接收 `--codex-config`。Apply 后，被禁用的 Claude source skills 会移动到 `~/.claude/skills/.sos-archive/<pack-id>/<name>/`；restore 会把它们移回去。
+
 ## 技术参考
 
 ### 安全模型
@@ -305,9 +319,9 @@ workspace recommendation state 位于：
 | --- | --- | --- |
 | `sos scan --root <path> [--codex-config <path>]` | 列出某个目录下已启用的 skills。 | 否 |
 | `sos propose --root <path>` | 根据扫描结果提出 pack 候选。 | 否 |
-| `sos plan --root <path> --runtime-root <path> --codex-config <path> --out <path>` | 写出可审查的计划文件。 | 只写计划文件 |
-| `sos apply --plan <path>` | 汇总计划内容，做 dry run。 | 否 |
-| `sos apply --plan <path> --apply` | 复制 skills、写 manifest 和 pointer、禁用原入口并创建备份。 | 是 |
+| `sos plan --host <host> --root <path> --runtime-root <path> --codex-config <path> --out <path>` | 写出可审查的计划文件。 | 只写计划文件 |
+| `sos apply --plan <path> [--host <host>]` | 汇总计划内容，做 dry run；未传 `--host` 时从计划文件中推断。 | 否 |
+| `sos apply --plan <path> [--host <host>] --apply` | 复制 skills、写 manifest 和 pointer、禁用原入口（Codex：写配置；Claude：移入 `.sos-archive`）并创建备份。 | 是 |
 | `sos pack activate <pack> --runtime-root <path>` | 激活 pack，并在符合条件时执行 clean sync。 | 可能 |
 | `sos pack list --runtime-root <path>` | 列出 runtime packs。 | 否 |
 | `sos pack show <pack> --runtime-root <path>` | 显示一个 pack manifest 和受管理 skills。 | 否 |
@@ -330,9 +344,12 @@ workspace recommendation state 位于：
 
 ### 兼容性
 
-SOS 当前以 Codex 为主。经过测试的写入路径可以在创建备份后更新 Codex skill 配置，而且只有显式传入 `--apply` 时才会真的写入。
+SOS 支持两种宿主：
 
-Claude Code 兼容性目前只在结构层面存在：生成的 skills 是普通 `SKILL.md` 文件夹，pack 元数据是标准 TOML manifest。SOS 还没有 Claude Code 专用安装器、settings 写入器或完整集成测试。
+- **Codex**：写入路径在创建备份后更新 Codex skill 配置，且只有传入 `--apply` 时才会写入。
+- **Claude Code**：写入路径将被禁用的源目录移入 `<skill-root>/.sos-archive/<pack-id>/<name>/`，使 Claude 不再发现它们；同样在创建 vault 备份后执行，且只有传入 `--apply` 时才会写入。
+
+生成的 skills 是普通 `SKILL.md` 文件夹，pack 元数据存储为普通 TOML manifest。通过每条写入命令的 `--host {codex,claude}` 参数选择宿主。
 
 ### 开发
 

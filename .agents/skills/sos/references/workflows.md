@@ -12,6 +12,16 @@ Before using any workflow below, run or inspect `scripts/sos_doctor.py` and read
 
 The command blocks below are workflow arguments. First remove the doctor check argument such as `--version`, then append the workflow arguments to the selected invocation shape. They do not prove that a global `sos` executable exists and must not be presented as requiring global installation.
 
+## Resolve Host First
+
+Before any write command, confirm the target host:
+
+- `--host codex`: write goes to `~/.codex/skills` or the path the user names. Apply disables skills by writing `enabled = false` in Codex config.
+- `--host claude`: write goes to `~/.claude/skills` or `.claude/skills`. Apply disables skills by moving the original folder to `<skill-root>/.sos-archive/<pack-id>/<name>/`.
+
+The doctor reports a `claude_skill_root` field when `~/.claude/skills` or
+`<cwd>/.claude/skills` exists. Surface it to the user; do not assume.
+
 ## Inspect Active Skills
 
 Start with scan. This is read-only.
@@ -49,7 +59,11 @@ pack show PACK_ID --runtime-root RUNTIME_ROOT --skill SKILL_NAME
 Use changes when the user says they installed, removed, updated, or re-enabled skills. This is read-only.
 
 ```text
-changes --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --codex-config CODEX_CONFIG
+# Codex
+changes --host codex --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --codex-config CODEX_CONFIG
+
+# Claude (no --codex-config)
+changes --host claude --root SKILLS_ROOT --runtime-root RUNTIME_ROOT
 ```
 
 ## Select A Skill Inside A Pack
@@ -65,7 +79,11 @@ pack show PACK_ID --runtime-root RUNTIME_ROOT --skill SKILL_NAME
 Plan writes only the explicit plan file. Confirm the output path first.
 
 ```text
-plan --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --codex-config CODEX_CONFIG --out PLAN_PATH
+# Codex
+plan --host codex --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --codex-config CODEX_CONFIG --out PLAN_PATH
+
+# Claude (no --codex-config)
+plan --host claude --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --out PLAN_PATH
 ```
 
 ## Dry-Run Apply
