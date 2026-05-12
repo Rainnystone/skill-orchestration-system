@@ -49,3 +49,11 @@ def test_scan_workspace_rejects_missing_root(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="workspace root"):
         scan_workspace(missing)
+
+
+def test_scan_workspace_rejects_existing_file_root(tmp_path: Path) -> None:
+    file_root = tmp_path / "workspace.txt"
+    file_root.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="workspace root"):
+        scan_workspace(file_root)
