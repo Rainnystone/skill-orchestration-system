@@ -70,6 +70,7 @@ def load_write_plan(path: str | Path) -> WritePlan:
         requires_apply=data.get("requires_apply", False),
         delete_source_requested=data.get("delete_source_requested", False),
         second_confirmation=data.get("second_confirmation", False),
+        host=data.get("host", "codex"),
     )
 
 
@@ -384,6 +385,7 @@ def _write_plan_to_dict(plan: WritePlan) -> dict[str, Any]:
         "requires_apply": plan.requires_apply,
         "delete_source_requested": plan.delete_source_requested,
         "second_confirmation": plan.second_confirmation,
+        "host": plan.host,
         "operations": [_write_operation_to_dict(operation) for operation in plan.operations],
     }
 

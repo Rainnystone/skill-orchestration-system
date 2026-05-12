@@ -298,6 +298,34 @@ def test_plan_rejects_unsafe_skill_name_even_when_outside_folder_is_valid(
     assert not runtime_paths.backups.exists()
 
 
+def test_write_plan_round_trips_host(tmp_path):
+    from sos.planner import load_write_plan, serialize_write_plan
+    from sos.models import WritePlan
+
+    plan_path = tmp_path / "plan.toml"
+    plan = WritePlan(plan_id="plan-test", host="claude")
+    serialize_write_plan(plan, plan_path)
+    loaded = load_write_plan(plan_path)
+    assert loaded.host == "claude"
+
+
+def test_legacy_plan_without_host_loads_as_codex(tmp_path):
+    from sos.planner import load_write_plan
+    from sos.toml_io import write_toml
+
+    plan_path = tmp_path / "legacy-plan.toml"
+    write_toml(plan_path, {
+        "plan_id": "plan-legacy",
+        "pack_ids": [],
+        "requires_apply": True,
+        "delete_source_requested": False,
+        "second_confirmation": False,
+        "operations": [],
+    })
+    loaded = load_write_plan(plan_path)
+    assert loaded.host == "codex"
+
+
 def test_plan_preserves_multi_pack_and_multi_skill_operation_order(tmp_path: Path):
     active_root = tmp_path / "active"
     _write_skill(active_root, "apify-actor-development")
