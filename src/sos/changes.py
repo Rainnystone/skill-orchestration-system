@@ -184,7 +184,7 @@ def _vault_changed(skill: SkillEntry) -> bool:
     if skill.last_vault_fingerprint:
         return vault_fingerprint != skill.last_vault_fingerprint
 
-    source_fingerprint = _existing_fingerprint(skill.source_path)
+    source_fingerprint = _existing_fingerprint(_effective_source_path(skill))
     return source_fingerprint is not None and vault_fingerprint != source_fingerprint
 
 

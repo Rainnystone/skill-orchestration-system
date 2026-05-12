@@ -239,7 +239,7 @@ sos propose --root ~/.claude/skills
 sos plan --host claude --root ~/.claude/skills --runtime-root ~/.sos --out plan.toml
 ```
 
-同时传入 `--codex-config` 和 `--host claude` 会被拒绝；在 `--host codex` 或不指定 host 的情况下传入 `--codex-config` 仍然有效，指向 Codex config TOML。
+`--codex-config` 标志适用于 `sos plan` 和 `sos changes`：`--host codex` 时为必填项，`--host claude` 时会被拒绝。`sos apply` 命令从计划 TOML 中读取 host，因此 apply 命令不直接接受 `--codex-config`。
 
 先 dry run，再 apply：
 

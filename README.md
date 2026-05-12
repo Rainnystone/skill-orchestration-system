@@ -273,7 +273,7 @@ Create a Claude plan (no `--codex-config` — Claude has no central skill regist
 sos plan --host claude --root ~/.claude/skills --runtime-root ~/.sos --out plan.toml
 ```
 
-Passing `--codex-config` with `--host claude` is rejected; passing it without `--host claude` (or with `--host codex`) still works and points at the Codex config TOML as before.
+The `--codex-config` flag applies to `sos plan` and `sos changes`: it is required when `--host codex` and rejected when `--host claude`. The `sos apply` command reads the host from the plan TOML, so apply commands do not take `--codex-config` directly.
 
 Dry-run and apply:
 

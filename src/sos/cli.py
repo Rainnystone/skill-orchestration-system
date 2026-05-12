@@ -331,7 +331,10 @@ def _handle_changes(args: argparse.Namespace) -> int:
     )
     print("next safe actions:")
     print("- review listed paths before any plan or apply step")
-    print("- disable managed source skills in Codex config if they should stay vault-managed")
+    if args.host == "codex":
+        print("- disable managed source skills in Codex config if they should stay vault-managed")
+    else:
+        print("- move unexpectedly enabled source skills into .sos-archive/ via a Claude apply")
     print("- restore missing pointers or re-run the relevant pack workflow after review")
     return 0
 

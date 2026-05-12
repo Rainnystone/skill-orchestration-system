@@ -177,8 +177,8 @@ def apply_write_plan(
     except Exception as error:
         rollback_message = ""
         try:
-            _restore_snapshots(snapshots)
             rollback_archive_moves(tuple(archive_journal))
+            _restore_snapshots(snapshots)
         except Exception as rollback_error:
             rollback_message = f"; rollback failed: {rollback_error}"
         return ApplyResult(
@@ -670,7 +670,11 @@ def _validated_source_deletion_paths(
             raise ValueError("delete source confirmation does not match candidate pack id")
         if _is_plugin_cache_path(candidate.path):
             raise ValueError(f"refusing to delete source path inside plugin cache: {candidate.path}")
-        if _is_claude_specific_path(candidate.path) and not exact_selection:
+        if (
+            _is_claude_specific_path(candidate.path)
+            and not _is_archive_path(candidate.path)
+            and not exact_selection
+        ):
             raise ValueError(
                 "Claude-specific source paths require exact deletion path selection"
             )
@@ -693,6 +697,11 @@ def _is_plugin_cache_path(path: Path) -> bool:
 
 def _is_claude_specific_path(path: Path) -> bool:
     return ".claude" in path.resolve(strict=False).parts
+
+
+def _is_archive_path(path: Path) -> bool:
+    from sos._archive import ARCHIVE_DIR_NAME
+    return ARCHIVE_DIR_NAME in path.resolve(strict=False).parts
 
 
 def _operations_of_kind(

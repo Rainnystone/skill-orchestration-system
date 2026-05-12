@@ -307,3 +307,94 @@ def test_claude_delete_source_removes_archive_entry(tmp_path):
     # The pack-level parent stays (proves the archive structure was actually created
     # before deletion; DELETE_SOURCE only removes the leaf, not the parent directory).
     assert (skill_root / ".sos-archive" / "demo").is_dir()
+
+
+def test_apply_rollback_with_delete_source_preserves_source(tmp_path, monkeypatch):
+    """Regression: failure between MOVE_TO_ARCHIVE and DELETE_SOURCE must not lose the source."""
+    from sos.apply import apply_write_plan
+    from sos.planner import build_pack_apply_plan
+    from sos.paths import RuntimePaths
+    from sos.propose import PackProposal
+    from sos import apply as apply_module_mod
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    demo_dir = skill_root / "demo-skill"
+    demo_dir.mkdir()
+    (demo_dir / "SKILL.md").write_text(
+        "---\nname: demo-skill\ndescription: demo\n---\nbody\n",
+        encoding="utf-8",
+    )
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+    proposals = (PackProposal(pack_id="demo", skill_names=("demo-skill",), reason="t"),)
+    plan = build_pack_apply_plan(
+        runtime_paths, skill_root, codex_config_path, proposals, host="claude"
+    )
+
+    # Force failure AFTER MOVE_TO_ARCHIVE completes by patching save_registry to raise.
+    original_save_registry = apply_module_mod.save_registry
+
+    def failing_save_registry(*args, **kwargs):
+        raise RuntimeError("simulated registry write failure")
+
+    monkeypatch.setattr(apply_module_mod, "save_registry", failing_save_registry)
+
+    result = apply_write_plan(
+        plan,
+        runtime_paths,
+        codex_config_path,
+        skill_root,
+        apply=True,
+        host="claude",
+        delete_source=True,
+        confirm_delete_source="demo",
+    )
+
+    assert result.status == "failed"
+    # The original source folder must be intact, NOT lost.
+    assert (skill_root / "demo-skill" / "SKILL.md").is_file()
+    # Archive must not exist after rollback.
+    archived = skill_root / ".sos-archive" / "demo" / "demo-skill"
+    assert not archived.exists()
+
+
+def test_claude_delete_source_works_under_claude_skills_root(tmp_path):
+    """Regression: --delete-source must work when active_root is under .claude/skills."""
+    from sos.apply import apply_write_plan
+    from sos.planner import build_pack_apply_plan
+    from sos.paths import RuntimePaths
+    from sos.propose import PackProposal
+
+    # Simulate the canonical Claude layout: active_root under .claude/skills.
+    skill_root = tmp_path / ".claude" / "skills"
+    skill_root.mkdir(parents=True)
+    demo_dir = skill_root / "demo-skill"
+    demo_dir.mkdir()
+    (demo_dir / "SKILL.md").write_text(
+        "---\nname: demo-skill\ndescription: demo\n---\n", encoding="utf-8"
+    )
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+    proposals = (PackProposal(pack_id="demo", skill_names=("demo-skill",), reason="t"),)
+    plan = build_pack_apply_plan(
+        runtime_paths, skill_root, codex_config_path, proposals, host="claude"
+    )
+
+    result = apply_write_plan(
+        plan,
+        runtime_paths,
+        codex_config_path,
+        skill_root,
+        apply=True,
+        host="claude",
+        delete_source=True,
+        confirm_delete_source="demo",
+    )
+
+    assert result.status == "applied"
+    # Archive entry deleted (delete-source ran).
+    archived = skill_root / ".sos-archive" / "demo" / "demo-skill"
+    assert not archived.exists()
