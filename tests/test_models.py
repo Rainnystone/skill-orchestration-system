@@ -6,7 +6,6 @@ from sos.models import (
     OperationKind,
     PackManifest,
     SkillEntry,
-    WriteOperation,
     WritePlan,
 )
 
@@ -48,3 +47,8 @@ def test_skill_entry_accepts_archived_source_path():
         archived_source_path=Path("/tmp/.sos-archive/pack/x"),
     )
     assert entry.archived_source_path == Path("/tmp/.sos-archive/pack/x")
+
+
+def test_pack_manifest_accepts_claude_host():
+    manifest = PackManifest(id="x", display_name="X", pointer_skill="sos-x", host="claude")
+    assert manifest.host == "claude"
