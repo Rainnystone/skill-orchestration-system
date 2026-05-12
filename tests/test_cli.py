@@ -475,7 +475,8 @@ def test_recommend_record_selection_and_learn(capsys, tmp_path: Path):
         skill_description="Create and edit docx documents.",
     )
 
-    for _ in range(10):
+    first_record_output = ""
+    for index in range(10):
         exit_code = main(
             [
                 "recommend",
@@ -497,7 +498,9 @@ def test_recommend_record_selection_and_learn(capsys, tmp_path: Path):
             ]
         )
         assert exit_code == 0
-    capsys.readouterr()
+        captured = capsys.readouterr()
+        if index == 0:
+            first_record_output = captured.out
 
     learn_exit = main(
         [
@@ -520,7 +523,7 @@ def test_recommend_record_selection_and_learn(capsys, tmp_path: Path):
     assert f"learned reference: applied {learned_path}" in captured.out
     assert str(workspace_root) not in raw_events
     assert event_payload["workspace_id"].startswith("sha256:")
-    assert str(workspace_root) not in captured.out
+    assert str(workspace_root) not in first_record_output
 
 
 def test_recommend_record_selection_rejects_empty_packs_and_skills(tmp_path: Path):
