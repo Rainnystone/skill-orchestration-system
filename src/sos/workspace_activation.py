@@ -11,11 +11,18 @@ from sos.apply import ApplyResult
 from sos.models import OperationKind, PackManifest, WriteOperation, WritePlan
 from sos.pack_inspect import list_pack_manifests
 from sos.paths import RuntimePaths
-from sos.pointer import render_asahina_skill, render_nagato_skill, render_pack_pointer
+from sos.pointer import (
+    render_workspace_asahina_skill,
+    render_workspace_nagato_skill,
+    render_workspace_pack_pointer,
+)
 from sos.recommendation_store import ensure_learned_reference_stub, learned_reference_path
 
 _WORKSPACE_SKILL_ROOT_PARTS = (".agents", "skills")
 _WORKSPACE_SKILL_NAMES = ("sos-nagato", "sos-asahina")
+render_nagato_skill = render_workspace_nagato_skill
+render_pack_pointer = render_workspace_pack_pointer
+render_asahina_skill = render_workspace_asahina_skill
 
 
 @dataclass(frozen=True)

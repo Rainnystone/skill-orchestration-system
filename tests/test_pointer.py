@@ -204,6 +204,9 @@ def test_package_templates_match_repo_templates():
         "companion-skill.md.tmpl",
         "nagato-skill.md.tmpl",
         "asahina-skill.md.tmpl",
+        "workspace-pointer-skill.md.tmpl",
+        "workspace-nagato-skill.md.tmpl",
+        "workspace-asahina-skill.md.tmpl",
     ):
         package_path = package_templates / name
         repo_path = repo_templates / name

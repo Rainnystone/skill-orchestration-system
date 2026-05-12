@@ -1,0 +1,14 @@
+---
+name: sos-asahina
+description: "Use when `sos recommend learn` should capture explicit workspace recommendation notes."
+disable-model-invocation: true
+---
+# SOS Asahina
+
+Runtime root: `RUNTIME_ROOT`
+
+Trigger this explicitly with `sos recommend learn`.
+If the runtime root is not already known in the current session, confirm it with the user before refreshing learned notes.
+Use it to capture approved workspace recommendations and refresh `RUNTIME_ROOT/state/recommendations/asahina-reference.md`.
+Do not run from hooks.
+Keep the note short and factual.

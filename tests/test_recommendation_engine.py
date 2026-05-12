@@ -136,11 +136,42 @@ def test_recent_accepted_local_events_add_browser_soft_hint(tmp_path: Path) -> N
             ),
         )
 
-    context = build_recommendation_context(runtime_paths, workspace)
+    context = build_recommendation_context(runtime_paths, workspace, intent="browser help")
     recommendations = recommend_packs(context)
 
     browser = next(item for item in recommendations if item.pack_id == "browser")
     assert "accepted local selections" in browser.reason
+
+
+def test_unrelated_local_selection_tags_do_not_add_soft_hint(tmp_path: Path) -> None:
+    runtime_paths = _write_registry(tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "README.md").write_text("# Docs workspace\n", encoding="utf-8")
+    workspace_id = recommendation_store.workspace_id_for_path(workspace)
+
+    for index in range(3):
+        recommendation_store.append_selection_event(
+            runtime_paths,
+            recommendation_store.SelectionEvent(
+                schema_version=1,
+                created_at=f"2026-05-12T10:00:0{index}+00:00",
+                workspace_id=workspace_id,
+                scenario_label="browser help",
+                scenario_tags=("browser",),
+                selected_pack_ids=("browser",),
+                selected_skill_names=("open-browser",),
+                manifest_fingerprint="sha256:test",
+                selection_source="user_accepted",
+                outcome="activated",
+            ),
+        )
+
+    context = build_recommendation_context(runtime_paths, workspace, intent="docs workflow")
+    recommendations = recommend_packs(context, limit=10)
+
+    browser = next(item for item in recommendations if item.pack_id == "browser")
+    assert "accepted local selections" not in browser.reason
 
 
 def test_browser_pack_does_not_get_learned_reference_reason_from_scenario_text(
@@ -165,6 +196,57 @@ def test_browser_pack_does_not_get_learned_reference_reason_from_scenario_text(
 
     browser = next(item for item in recommendations if item.pack_id == "browser")
     assert "learned reference" not in browser.reason
+
+
+def test_learned_reference_only_applies_to_matching_workspace(tmp_path: Path) -> None:
+    runtime_paths = _write_registry(tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    recommendation_store.learned_reference_path(runtime_paths).parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    recommendation_store.learned_reference_path(runtime_paths).write_text(
+        "## Learned Recommendation Hints\n\n"
+        "Workspace: sha256:other-workspace\n"
+        "Scenario: browser debugging\n"
+        "Scenario tags: browser\n"
+        "Prefer recommending: browser\n"
+        "Evidence: 10 accepted selections\n",
+        encoding="utf-8",
+    )
+
+    context = build_recommendation_context(runtime_paths, workspace, intent="browser help")
+    recommendations = recommend_packs(context, limit=10)
+
+    browser = next(item for item in recommendations if item.pack_id == "browser")
+    assert "learned reference" not in browser.reason
+
+
+def test_matching_workspace_learned_reference_adds_reason(tmp_path: Path) -> None:
+    runtime_paths = _write_registry(tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    workspace_id = recommendation_store.workspace_id_for_path(workspace)
+    recommendation_store.learned_reference_path(runtime_paths).parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    recommendation_store.learned_reference_path(runtime_paths).write_text(
+        "## Learned Recommendation Hints\n\n"
+        f"Workspace: {workspace_id}\n"
+        "Scenario: browser debugging\n"
+        "Scenario tags: browser\n"
+        "Prefer recommending: browser\n"
+        "Evidence: 10 accepted selections\n",
+        encoding="utf-8",
+    )
+
+    context = build_recommendation_context(runtime_paths, workspace, intent="browser help")
+    recommendations = recommend_packs(context, limit=10)
+
+    browser = next(item for item in recommendations if item.pack_id == "browser")
+    assert "learned reference" in browser.reason
 
 
 def test_build_context_does_not_create_learned_reference_when_missing(tmp_path: Path) -> None:

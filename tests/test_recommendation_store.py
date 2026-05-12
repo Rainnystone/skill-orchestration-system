@@ -7,6 +7,23 @@ import sos.recommendation_store as recommendation_store
 from sos.paths import RuntimePaths
 
 
+def _selection_event(**overrides: object) -> recommendation_store.SelectionEvent:
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "created_at": "2026-05-12T10:00:00+00:00",
+        "workspace_id": "sha256:1234",
+        "scenario_label": "workspace docs planning",
+        "scenario_tags": ("docs", "planning"),
+        "selected_pack_ids": ("docs",),
+        "selected_skill_names": ("documents",),
+        "manifest_fingerprint": "sha256:abcd",
+        "selection_source": "user_accepted",
+        "outcome": "activated",
+    }
+    payload.update(overrides)
+    return recommendation_store.SelectionEvent(**payload)
+
+
 def test_stub_dry_run_does_not_write(tmp_path: Path):
     runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
 
@@ -26,17 +43,11 @@ def test_stub_apply_writes_exact_empty_reference(tmp_path: Path):
 
 def test_append_load_round_trip_uses_compact_schema_without_forbidden_fields(tmp_path: Path):
     runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
-    event = recommendation_store.SelectionEvent(
-        schema_version=1,
-        created_at="2026-05-12T10:00:00+00:00",
-        workspace_id="sha256:1234",
+    event = _selection_event(
         scenario_label="apify crawler",
         scenario_tags=("apify", "crawler"),
         selected_pack_ids=("apify", "browser"),
         selected_skill_names=("crawl-site", "open-browser"),
-        manifest_fingerprint="sha256:abcd",
-        selection_source="user_accepted",
-        outcome="activated",
     )
 
     path = recommendation_store.append_selection_event(runtime_paths, event)
@@ -65,6 +76,34 @@ def test_append_load_round_trip_uses_compact_schema_without_forbidden_fields(tmp
 
     loaded = recommendation_store.load_selection_events(runtime_paths)
     assert loaded == (event,)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    (
+        ({"scenario_label": r"C:\Users\private\notes"}, "unsafe scenario_label"),
+        ({"scenario_label": "workspace\ndocs"}, "unsafe scenario_label"),
+        ({"scenario_label": "x" * 81}, "unsafe scenario_label"),
+        ({"scenario_tags": ("docs", "")}, "unsafe scenario_tag"),
+        ({"scenario_tags": ("docs", "private/path")}, "unsafe scenario_tag"),
+        ({"selected_pack_ids": ("docs", "docs/private")}, "unsafe selected_pack_id"),
+        ({"selected_skill_names": ("documents", r"open\browser")}, "unsafe selected_skill_name"),
+    ),
+)
+def test_append_selection_event_rejects_unsafe_values_before_write(
+    tmp_path: Path,
+    overrides: dict[str, object],
+    message: str,
+):
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+
+    with pytest.raises(ValueError, match=message):
+        recommendation_store.append_selection_event(
+            runtime_paths,
+            _selection_event(**overrides),
+        )
+
+    assert not recommendation_store.selection_events_path(runtime_paths).exists()
 
 
 def test_invalid_jsonl_lines_are_ignored_and_preserved(tmp_path: Path):
@@ -103,19 +142,44 @@ def test_invalid_jsonl_lines_are_ignored_and_preserved(tmp_path: Path):
     assert path.read_text(encoding="utf-8") == original_text
 
 
+def test_loaded_selection_events_ignore_invalid_persisted_values(tmp_path: Path):
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    path = recommendation_store.selection_events_path(runtime_paths)
+    valid_line = json.dumps(
+        recommendation_store._selection_event_payload(_selection_event()),
+        separators=(",", ":"),
+    )
+    invalid_lines = (
+        json.dumps(
+            recommendation_store._selection_event_payload(
+                _selection_event(scenario_label=r"C:\Users\private\prompt")
+            ),
+            separators=(",", ":"),
+        ),
+        json.dumps(
+            recommendation_store._selection_event_payload(
+                _selection_event(scenario_tags=("docs", ""))
+            ),
+            separators=(",", ":"),
+        ),
+    )
+    original_text = "\n".join((valid_line, *invalid_lines, ""))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(original_text, encoding="utf-8")
+
+    loaded = recommendation_store.load_selection_events(runtime_paths)
+
+    assert loaded == (_selection_event(),)
+    assert path.read_text(encoding="utf-8") == original_text
+
+
 def test_ten_repeated_activated_selections_produce_learned_reference(tmp_path: Path):
     runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
-    event = recommendation_store.SelectionEvent(
-        schema_version=1,
-        created_at="2026-05-12T10:00:00+00:00",
-        workspace_id="sha256:1234",
+    event = _selection_event(
         scenario_label="apify crawler",
         scenario_tags=("apify", "crawler"),
         selected_pack_ids=("apify",),
         selected_skill_names=("crawl-site",),
-        manifest_fingerprint="sha256:abcd",
-        selection_source="user_accepted",
-        outcome="activated",
     )
     path = recommendation_store.selection_events_path(runtime_paths)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -148,9 +212,69 @@ def test_ten_repeated_activated_selections_produce_learned_reference(tmp_path: P
 
     assert reference != recommendation_store.ASAHINA_EMPTY_REFERENCE
     assert "## Learned Recommendation Hints" in reference
+    assert "Workspace: sha256:1234" in reference
     assert "Scenario: apify crawler" in reference
+    assert "Scenario tags: apify, crawler" in reference
     assert "Prefer recommending: apify" in reference
     assert "Evidence: 10 accepted selections" in reference
+
+
+def test_learned_reference_does_not_merge_events_from_different_workspaces(tmp_path: Path):
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    path = recommendation_store.selection_events_path(runtime_paths)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(
+            json.dumps(
+                recommendation_store._selection_event_payload(
+                    _selection_event(
+                        created_at=f"2026-05-12T10:00:0{index}+00:00",
+                        workspace_id="sha256:one" if index < 5 else "sha256:two",
+                    )
+                ),
+                separators=(",", ":"),
+            )
+            + "\n"
+            for index in range(10)
+        ),
+        encoding="utf-8",
+    )
+
+    reference = recommendation_store.build_learned_reference(
+        recommendation_store.load_selection_events(runtime_paths)
+    )
+
+    assert reference == recommendation_store.ASAHINA_EMPTY_REFERENCE
+
+
+def test_learned_reference_does_not_merge_events_with_different_tag_sets(tmp_path: Path):
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    path = recommendation_store.selection_events_path(runtime_paths)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(
+            json.dumps(
+                recommendation_store._selection_event_payload(
+                    _selection_event(
+                        created_at=f"2026-05-12T10:00:0{index}+00:00",
+                        scenario_tags=("docs", "planning")
+                        if index < 5
+                        else ("docs", "review"),
+                    )
+                ),
+                separators=(",", ":"),
+            )
+            + "\n"
+            for index in range(10)
+        ),
+        encoding="utf-8",
+    )
+
+    reference = recommendation_store.build_learned_reference(
+        recommendation_store.load_selection_events(runtime_paths)
+    )
+
+    assert reference == recommendation_store.ASAHINA_EMPTY_REFERENCE
 
 
 def test_old_reversed_semantics_do_not_count_toward_learned_reference(tmp_path: Path):
@@ -223,17 +347,11 @@ def test_unsupported_schema_versions_are_ignored(tmp_path: Path):
 
 def test_below_threshold_returns_empty_reference(tmp_path: Path):
     runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
-    event = recommendation_store.SelectionEvent(
-        schema_version=1,
-        created_at="2026-05-12T10:00:00+00:00",
-        workspace_id="sha256:1234",
+    event = _selection_event(
         scenario_label="apify crawler",
         scenario_tags=("apify",),
         selected_pack_ids=("apify",),
         selected_skill_names=("crawl-site",),
-        manifest_fingerprint="sha256:abcd",
-        selection_source="user_accepted",
-        outcome="activated",
     )
     path = recommendation_store.selection_events_path(runtime_paths)
     path.parent.mkdir(parents=True, exist_ok=True)

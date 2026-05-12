@@ -1,0 +1,16 @@
+---
+name: sos-nagato
+description: "Use when `sos recommend context` should generate workspace-only context guidance."
+---
+# SOS Nagato
+
+Workspace root: `WORKSPACE_ROOT`
+Runtime root: `RUNTIME_ROOT`
+Learned reference: `RUNTIME_ROOT/state/recommendations/asahina-reference.md`
+
+Use `sos recommend context` to inspect the current workspace and choose relevant skills.
+This is workspace-only behavior.
+If the runtime root is not already known in the current session, ask the user to confirm it before reading runtime files.
+Read the learned reference path before recommending. If the stub is empty, say there are no learned recommendations yet.
+Do not use hooks.
+Keep context small and selection direct.

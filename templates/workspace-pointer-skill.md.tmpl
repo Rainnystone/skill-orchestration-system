@@ -1,0 +1,27 @@
+---
+name: {{name}}
+description: "{{description}}"
+---
+# {{display_name}} SOS Pointer
+
+Pack id: `{{pack_id}}`
+Manifest: `{{manifest_path}}`
+Vault root: `{{vault_root}}`
+
+Activation:
+Run `{{activation_command}}` before reading vault skill files.
+If the runtime root is not already known in the current session, confirm it with the user first.
+
+CLI unavailable fallback:
+If the SOS CLI is unavailable, say sync preflight was not completed, then continue by reading the manifest and vault paths below.
+
+Vault read order:
+1. Open the manifest at `{{manifest_path}}`.
+2. If the user names a skill, match it exactly against manifest `skills.name`.
+3. If exactly one skill matches, read only that selected vault skill folder and follow its `SKILL.md`.
+4. If no skill matches or multiple skills fit equally well, show candidate `skills.name` values and ask the user to choose.
+5. If the user did not name a skill, choose from manifest `skills.name` and `skills.description`; do not read every packed skill up front.
+6. State the selected vault skill and why it was selected before doing substantial work.
+
+Do not use original source paths as active instructions.
+Do not copy full original skill bodies into this pointer.

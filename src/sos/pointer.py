@@ -71,6 +71,20 @@ def render_nagato_skill(
     atomic_write_text(_skill_file_path(target, "sos-nagato"), text)
 
 
+def render_workspace_nagato_skill(
+    target: str | Path,
+    *,
+    runtime_root: str | Path,
+    workspace_root: str | Path,
+) -> None:
+    del runtime_root, workspace_root
+    text = _render_template(
+        "workspace-nagato-skill.md.tmpl",
+        {},
+    )
+    atomic_write_text(_skill_file_path(target, "sos-nagato"), text)
+
+
 def render_asahina_skill(target: str | Path, *, runtime_root: str | Path) -> None:
     text = _render_template(
         "asahina-skill.md.tmpl",
@@ -79,6 +93,37 @@ def render_asahina_skill(target: str | Path, *, runtime_root: str | Path) -> Non
         },
     )
     atomic_write_text(_skill_file_path(target, "sos-asahina"), text)
+
+
+def render_workspace_asahina_skill(target: str | Path, *, runtime_root: str | Path) -> None:
+    del runtime_root
+    text = _render_template(
+        "workspace-asahina-skill.md.tmpl",
+        {},
+    )
+    atomic_write_text(_skill_file_path(target, "sos-asahina"), text)
+
+
+def render_workspace_pack_pointer(target: str | Path, manifest: PackManifest) -> None:
+    pointer_skill = _safe_pointer_skill_name(manifest.pointer_skill)
+    description = _compact_description(manifest)
+    text = _render_template(
+        "workspace-pointer-skill.md.tmpl",
+        {
+            "name": pointer_skill,
+            "description": description,
+            "display_name": manifest.display_name,
+            "pack_id": manifest.id,
+            "manifest_path": f"RUNTIME_ROOT/packs/{manifest.id}.toml",
+            "vault_root": f"RUNTIME_ROOT/vault/{manifest.id}",
+            "activation_command": (
+                f"sos pack activate {manifest.id} "
+                f"--runtime-root RUNTIME_ROOT "
+                f"--sync={manifest.sync_policy}"
+            ),
+        },
+    )
+    atomic_write_text(_skill_file_path(target, pointer_skill), text)
 
 
 def render_v1_active_skills(

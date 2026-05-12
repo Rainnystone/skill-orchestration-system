@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -101,6 +102,40 @@ def test_workspace_activation_apply_writes_workspace_skills_pointer_and_stub(
     assert learned_reference_path(runtime_paths).read_text(encoding="utf-8") == (
         ASAHINA_EMPTY_REFERENCE
     )
+
+
+def test_recommend_workspace_activation_redacts_absolute_paths_in_workspace_skills(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+
+    plan = build_workspace_activation_plan(runtime_paths, workspace_root, ("docs",))
+    result = apply_workspace_activation_plan(plan, runtime_paths, apply=True)
+
+    workspace_skill_root = workspace_root / ".agents" / "skills"
+    nagato_text = (workspace_skill_root / "sos-nagato" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    asahina_text = (workspace_skill_root / "sos-asahina" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    docs_text = (workspace_skill_root / "sos-docs" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert result.status == "applied"
+    for rendered in (nagato_text, asahina_text, docs_text):
+        assert str(workspace_root) not in rendered
+        assert str(runtime_paths.root) not in rendered
+        assert str(tmp_path) not in rendered
+        assert re.search(r"[A-Z]:\\\\", rendered) is None
+    assert "WORKSPACE_ROOT" in nagato_text
+    assert "RUNTIME_ROOT/state/recommendations/asahina-reference.md" in nagato_text
+    assert "sos recommend context" in nagato_text
+    assert "sos recommend learn" in asahina_text
+    assert "confirm it with the user" in asahina_text
+    assert "sos pack activate docs --runtime-root RUNTIME_ROOT --sync=clean-auto" in docs_text
 
 
 def test_workspace_activation_rejects_unknown_pack_id(tmp_path: Path):

@@ -30,8 +30,10 @@ _KIND_KEYWORDS = {
 class RecommendationContext:
     runtime_paths: RuntimePaths
     workspace_root: Path
+    workspace_id: str
     workspace_signal: WorkspaceSignal
     intent: str
+    scenario_tags: frozenset[str]
     pack_manifests: tuple[PackManifest, ...]
     learned_reference: str
     selection_events: tuple[SelectionEvent, ...]
@@ -52,11 +54,15 @@ def build_recommendation_context(
     intent: str = "",
 ) -> RecommendationContext:
     learned_path = learned_reference_path(runtime_paths)
+    workspace_root_path = Path(workspace_root).expanduser()
+    workspace_signal = scan_workspace(workspace_root)
     return RecommendationContext(
         runtime_paths=runtime_paths,
-        workspace_root=Path(workspace_root).expanduser(),
-        workspace_signal=scan_workspace(workspace_root),
+        workspace_root=workspace_root_path,
+        workspace_id=workspace_id_for_path(workspace_root_path),
+        workspace_signal=workspace_signal,
         intent=intent,
+        scenario_tags=_scenario_tags(workspace_signal, intent),
         pack_manifests=list_pack_manifests(runtime_paths),
         learned_reference=learned_path.read_text(encoding="utf-8") if learned_path.is_file() else "",
         selection_events=load_selection_events(runtime_paths),
@@ -72,7 +78,8 @@ def recommend_packs(
 
     local_selection_counts = _accepted_local_selection_counts(
         context.selection_events,
-        context.workspace_root,
+        context.workspace_id,
+        context.scenario_tags,
     )
     recommendations = [
         _score_manifest(
@@ -80,6 +87,7 @@ def recommend_packs(
             context.workspace_signal,
             context.intent,
             context.learned_reference,
+            context.workspace_id,
             local_selection_counts,
         )
         for manifest in context.pack_manifests
@@ -93,6 +101,7 @@ def _score_manifest(
     workspace_signal: WorkspaceSignal,
     intent: str,
     learned_reference: str,
+    workspace_id: str,
     local_selection_counts: Counter[str],
 ) -> Recommendation:
     score = 0
@@ -109,7 +118,7 @@ def _score_manifest(
         score += intent_score
         reasons.append("intent match")
 
-    learned_score = _learned_reference_score(learned_reference, manifest)
+    learned_score = _learned_reference_score(learned_reference, manifest, workspace_id)
     if learned_score:
         score += learned_score
         reasons.append("learned reference")
@@ -157,10 +166,11 @@ def _text_match_score(text: str, search_blob: str, weight: int) -> int:
 def _learned_reference_score(
     learned_reference: str,
     manifest: PackManifest,
+    workspace_id: str,
 ) -> int:
     if not learned_reference:
         return 0
-    preferred_targets = _preferred_targets(learned_reference)
+    preferred_targets = _preferred_targets(learned_reference, workspace_id)
     score = 0
     if manifest.id.lower() in preferred_targets:
         score += 5
@@ -172,14 +182,16 @@ def _learned_reference_score(
 
 def _accepted_local_selection_counts(
     events: Iterable[SelectionEvent],
-    workspace_root: Path,
+    workspace_id: str,
+    scenario_tags: frozenset[str],
 ) -> Counter[str]:
-    workspace_id = workspace_id_for_path(workspace_root)
     counts: Counter[str] = Counter()
     for event in events:
         if event.workspace_id != workspace_id:
             continue
         if event.selection_source != "user_accepted" or event.outcome != "activated":
+            continue
+        if not scenario_tags.intersection(event.scenario_tags):
             continue
         for pack_id in event.selected_pack_ids:
             counts[pack_id] += 1
@@ -204,12 +216,20 @@ def _keyword_matches(search_blob: str, search_tokens: frozenset[str], keyword: s
     return keyword in search_tokens
 
 
-def _preferred_targets(learned_reference: str) -> frozenset[str]:
+def _preferred_targets(learned_reference: str, workspace_id: str) -> frozenset[str]:
+    current_workspace: str | None = None
     targets: set[str] = set()
+    workspace_prefix = "workspace:"
     prefix = "prefer recommending:"
     for line in learned_reference.splitlines():
         stripped = line.strip()
+        lowered = stripped.lower()
+        if lowered.startswith(workspace_prefix):
+            current_workspace = stripped[len(workspace_prefix) :].strip()
+            continue
         if not stripped.lower().startswith(prefix):
+            continue
+        if current_workspace != workspace_id:
             continue
         values = stripped[len(prefix) :].split(",")
         for value in values:
@@ -217,6 +237,16 @@ def _preferred_targets(learned_reference: str) -> frozenset[str]:
             if cleaned:
                 targets.add(cleaned)
     return frozenset(targets)
+
+
+def _scenario_tags(workspace_signal: WorkspaceSignal, intent: str) -> frozenset[str]:
+    tags = {
+        *workspace_signal.kinds,
+        *workspace_signal.markers,
+        *_tokens(intent),
+    }
+    tags.discard("mixed")
+    return frozenset(tags)
 
 
 def _tokens(text: str) -> tuple[str, ...]:

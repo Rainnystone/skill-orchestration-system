@@ -581,6 +581,63 @@ def test_recommend_record_selection_rejects_empty_packs_and_skills(tmp_path: Pat
         )
 
 
+def test_recommend_record_selection_rejects_unsafe_persisted_values(tmp_path: Path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+
+    with pytest.raises(ValueError, match="unsafe scenario_label"):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                r"C:\Users\private\prompt",
+                "--scenario-tags",
+                "docs",
+                "--packs",
+                "docs",
+                "--skills",
+                "documents",
+                "--manifest-fingerprint",
+                "sha256:docs",
+            ]
+        )
+
+    with pytest.raises(ValueError, match="unsafe scenario_tag"):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                "docs workflow",
+                "--scenario-tags",
+                "docs,/private/path",
+                "--packs",
+                "docs",
+                "--skills",
+                "documents",
+                "--manifest-fingerprint",
+                "sha256:docs",
+            ]
+        )
+
+    assert not selection_events_path(runtime_paths).exists()
+
+
 def test_recommend_learn_preview_does_not_write_reference(capsys, tmp_path: Path):
     runtime_paths, _ = _write_runtime_pack(
         tmp_path / ".sos",

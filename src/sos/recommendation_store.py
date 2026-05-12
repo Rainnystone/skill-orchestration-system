@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -19,6 +20,8 @@ ASAHINA_EMPTY_REFERENCE = (
 _RECOMMENDATIONS_DIRNAME = "recommendations"
 _SELECTION_EVENTS_FILENAME = "selection-events.jsonl"
 _LEARNED_REFERENCE_FILENAME = "asahina-reference.md"
+_MAX_SCENARIO_LABEL_LENGTH = 80
+_SAFE_IDENTIFIER_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{0,63})?$")
 _SELECTION_EVENT_FIELDS = (
     "schema_version",
     "created_at",
@@ -67,6 +70,7 @@ def ensure_learned_reference_stub(runtime_paths: RuntimePaths, apply: bool) -> P
 
 
 def append_selection_event(runtime_paths: RuntimePaths, event: SelectionEvent) -> Path:
+    _validate_selection_event(event)
     path = selection_events_path(runtime_paths)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = _selection_event_payload(event)
@@ -97,7 +101,7 @@ def load_selection_events(runtime_paths: RuntimePaths) -> tuple[SelectionEvent, 
 
 
 def build_learned_reference(events: Iterable[SelectionEvent]) -> str:
-    best_key: tuple[str, tuple[str, ...]] | None = None
+    best_key: tuple[str, str, tuple[str, ...], tuple[str, ...]] | None = None
     best_count = 0
 
     for event, count in _count_user_accepted_activation_events(events).items():
@@ -111,11 +115,13 @@ def build_learned_reference(events: Iterable[SelectionEvent]) -> str:
     if best_key is None or best_count < 10:
         return ASAHINA_EMPTY_REFERENCE
 
-    scenario_label, selected_pack_ids = best_key
+    workspace_id, scenario_label, scenario_tags, selected_pack_ids = best_key
     prefer_recommending = ", ".join(selected_pack_ids)
     return (
         "## Learned Recommendation Hints\n\n"
+        f"Workspace: {workspace_id}\n"
         f"Scenario: {scenario_label}\n"
+        f"Scenario tags: {', '.join(scenario_tags)}\n"
         f"Prefer recommending: {prefer_recommending}\n"
         f"Evidence: {best_count} accepted selections\n"
     )
@@ -176,7 +182,7 @@ def _selection_event_from_payload(payload: Any) -> SelectionEvent | None:
     if scenario_tags is None or selected_pack_ids is None or selected_skill_names is None:
         return None
 
-    return SelectionEvent(
+    event = SelectionEvent(
         schema_version=schema_version,
         created_at=created_at,
         workspace_id=workspace_id,
@@ -188,6 +194,11 @@ def _selection_event_from_payload(payload: Any) -> SelectionEvent | None:
         selection_source=selection_source,
         outcome=outcome,
     )
+    try:
+        _validate_selection_event(event)
+    except ValueError:
+        return None
+    return event
 
 
 def _tuple_of_strings(value: Any) -> tuple[str, ...] | None:
@@ -200,12 +211,70 @@ def _tuple_of_strings(value: Any) -> tuple[str, ...] | None:
 
 def _count_user_accepted_activation_events(
     events: Iterable[SelectionEvent],
-) -> dict[tuple[str, tuple[str, ...]], int]:
-    counts: dict[tuple[str, tuple[str, ...]], int] = {}
+) -> dict[tuple[str, str, tuple[str, ...], tuple[str, ...]], int]:
+    counts: dict[tuple[str, str, tuple[str, ...], tuple[str, ...]], int] = {}
     for event in events:
         if event.selection_source != "user_accepted" or event.outcome != "activated":
             continue
-        key = (event.scenario_label, event.selected_pack_ids)
+        key = (
+            event.workspace_id,
+            event.scenario_label,
+            tuple(sorted(set(event.scenario_tags))),
+            event.selected_pack_ids,
+        )
         counts[key] = counts.get(key, 0) + 1
     return counts
+
+
+def _validate_selection_event(event: SelectionEvent) -> None:
+    _validate_freeform_label(event.created_at, "created_at", max_length=64)
+    _validate_identifier_like(event.workspace_id, "workspace_id")
+    _validate_scenario_label(event.scenario_label)
+    _validate_identifier_values(event.scenario_tags, "scenario_tag")
+    _validate_identifier_values(event.selected_pack_ids, "selected_pack_id")
+    _validate_identifier_values(event.selected_skill_names, "selected_skill_name")
+    _validate_identifier_like(event.manifest_fingerprint, "manifest_fingerprint")
+    _validate_identifier_values((event.selection_source,), "selection_source")
+    _validate_identifier_values((event.outcome,), "outcome")
+
+
+def _validate_scenario_label(value: str) -> None:
+    _validate_freeform_label(
+        value,
+        "scenario_label",
+        max_length=_MAX_SCENARIO_LABEL_LENGTH,
+    )
+
+
+def _validate_identifier_values(values: tuple[str, ...], label: str) -> None:
+    if not values:
+        raise ValueError(f"unsafe {label}: empty")
+    for value in values:
+        if not _SAFE_IDENTIFIER_RE.fullmatch(value):
+            raise ValueError(f"unsafe {label}: {value}")
+
+
+def _validate_identifier_like(value: str, label: str) -> None:
+    if not value.strip():
+        raise ValueError(f"unsafe {label}: empty")
+    if _contains_control_characters(value) or _looks_like_path(value):
+        raise ValueError(f"unsafe {label}: {value}")
+
+
+def _validate_freeform_label(value: str, label: str, *, max_length: int) -> None:
+    stripped = value.strip()
+    if not stripped or len(stripped) > max_length:
+        raise ValueError(f"unsafe {label}: {value}")
+    if _contains_control_characters(stripped) or _looks_like_path(stripped):
+        raise ValueError(f"unsafe {label}: {value}")
+
+
+def _contains_control_characters(value: str) -> bool:
+    return any(ord(character) < 32 or ord(character) == 127 for character in value)
+
+
+def _looks_like_path(value: str) -> bool:
+    if "/" in value or "\\" in value:
+        return True
+    return len(value) >= 3 and value[1] == ":" and value[0].isalpha() and value[2] in {"\\", "/"}
 
