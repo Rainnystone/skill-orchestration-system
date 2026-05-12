@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import shutil
 import tempfile
 from dataclasses import dataclass, replace
@@ -8,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from sos._archive import ArchiveMove, execute_move_to_archive, rollback_archive_moves
 from sos.backups import create_backup
 from sos.codex_config import disable_skill_paths_with_backup
 from sos.fingerprint import fingerprint_dir
@@ -64,12 +64,6 @@ class _PathSnapshot:
     path: Path
     kind: str
     backup_path: Path | None = None
-
-
-@dataclass(frozen=True)
-class _ArchiveMove:
-    source: Path
-    target: Path
 
 
 _OPERATION_PHASES = {
@@ -130,7 +124,7 @@ def apply_write_plan(
         config_path,
         source_deletion_paths,
     )
-    archive_journal: list[_ArchiveMove] = []
+    archive_journal: list[ArchiveMove] = []
     archive_map: dict[Path, Path] = {}
 
     try:
@@ -142,7 +136,7 @@ def apply_write_plan(
 
         if host == "claude":
             for operation in _operations_of_kind(plan, OperationKind.MOVE_TO_ARCHIVE):
-                _execute_move_to_archive(operation, archive_journal)
+                execute_move_to_archive(operation, archive_journal)
                 archive_map[_required_path(operation.source)] = _required_path(operation.target)
 
         baselined_manifests = _with_initial_fingerprints(
@@ -184,7 +178,7 @@ def apply_write_plan(
         rollback_message = ""
         try:
             _restore_snapshots(snapshots)
-            _rollback_archive_moves(tuple(archive_journal))
+            rollback_archive_moves(tuple(archive_journal))
         except Exception as rollback_error:
             rollback_message = f"; rollback failed: {rollback_error}"
         return ApplyResult(
@@ -304,33 +298,6 @@ def _restore_snapshot(snapshot: _PathSnapshot) -> None:
         shutil.copy2(snapshot.backup_path, snapshot.path)
         return
     raise ValueError(f"unknown snapshot kind: {snapshot.kind}")
-
-
-def _execute_move_to_archive(
-    operation: WriteOperation,
-    journal: list[_ArchiveMove],
-) -> None:
-    source = _required_path(operation.source)
-    target = _required_path(operation.target)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        os.replace(source, target)
-    except OSError:
-        # Cross-device fallback. Copy then remove; rollback re-creates source from target.
-        shutil.copytree(source, target)
-        shutil.rmtree(source)
-    journal.append(_ArchiveMove(source=source, target=target))
-
-
-def _rollback_archive_moves(journal: tuple[_ArchiveMove, ...]) -> None:
-    for move in reversed(journal):
-        if move.target.exists():
-            move.source.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                os.replace(move.target, move.source)
-            except OSError:
-                shutil.copytree(move.target, move.source)
-                shutil.rmtree(move.target)
 
 
 def _remove_path(path: Path) -> None:

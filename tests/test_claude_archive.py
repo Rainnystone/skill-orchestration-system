@@ -184,13 +184,13 @@ def test_apply_rollback_moves_archive_back_on_failure(tmp_path, monkeypatch):
     )
 
     # Force failure by wrapping the executor to do its work then raise.
-    original_execute = apply_module._execute_move_to_archive
+    original_execute = apply_module.execute_move_to_archive
 
     def failing_execute(operation, journal):
         original_execute(operation, journal)
         raise RuntimeError("simulated mid-apply failure")
 
-    monkeypatch.setattr(apply_module, "_execute_move_to_archive", failing_execute)
+    monkeypatch.setattr(apply_module, "execute_move_to_archive", failing_execute)
 
     result = apply_write_plan(
         plan,
@@ -205,3 +205,61 @@ def test_apply_rollback_moves_archive_back_on_failure(tmp_path, monkeypatch):
     assert (skill_root / "demo-skill" / "SKILL.md").is_file()
     archived = skill_root / ".sos-archive" / "demo" / "demo-skill"
     assert not archived.exists()
+
+
+def test_apply_rollback_unwinds_only_completed_archive_moves(tmp_path, monkeypatch):
+    """If move 2 of 2 fails, move 1 must be rolled back AND move 2 must not have happened."""
+    from sos.apply import apply_write_plan
+    from sos.planner import build_pack_apply_plan
+    from sos.paths import RuntimePaths
+    from sos.propose import PackProposal
+    from sos import apply as apply_module
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    for name in ("alpha-skill", "beta-skill"):
+        d = skill_root / name
+        d.mkdir()
+        (d / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: demo\n---\n", encoding="utf-8"
+        )
+
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+    # Two separate packs so each one has its own MOVE_TO_ARCHIVE op.
+    proposals = (
+        PackProposal(pack_id="alpha", skill_names=("alpha-skill",), reason="t"),
+        PackProposal(pack_id="beta", skill_names=("beta-skill",), reason="t"),
+    )
+    plan = build_pack_apply_plan(
+        runtime_paths, skill_root, codex_config_path, proposals, host="claude"
+    )
+
+    original_execute = apply_module.execute_move_to_archive
+    call_count = {"n": 0}
+
+    def fail_on_second(operation, journal):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            raise RuntimeError("simulated mid-archive failure")
+        original_execute(operation, journal)
+
+    monkeypatch.setattr(apply_module, "execute_move_to_archive", fail_on_second)
+
+    result = apply_write_plan(
+        plan,
+        runtime_paths,
+        codex_config_path,
+        skill_root,
+        apply=True,
+        host="claude",
+    )
+
+    assert result.status == "failed"
+    # First skill's move was rolled back: original location intact, archive entry gone.
+    assert (skill_root / "alpha-skill" / "SKILL.md").is_file()
+    assert not (skill_root / ".sos-archive" / "alpha" / "alpha-skill").exists()
+    # Second skill never moved: original still in place, no archive entry.
+    assert (skill_root / "beta-skill" / "SKILL.md").is_file()
+    assert not (skill_root / ".sos-archive" / "beta" / "beta-skill").exists()
