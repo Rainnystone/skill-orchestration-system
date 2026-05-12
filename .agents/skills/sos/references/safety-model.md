@@ -19,3 +19,7 @@ Backups protect managed writes, but they are not a reason to skip review. For re
 ## Documentation
 
 Keep public onboarding docs aligned with the safety model. When install, usage, write-boundary, backup, restore, or activation behavior changes, update both `README.md` and `README_CN.md` in the same change.
+
+## Claude Archive Integrity
+
+In Claude mode, the disable semantic is a filesystem move into `<skill-root>/.sos-archive/`. That directory is managed state. Do not edit, move, rename, or `rm` its contents by hand. To bring archived skills back, use `sos restore <backup-id> --runtime-root <.sos> --apply`. To permanently remove archive entries, use `sos apply --plan <plan.toml> --apply --delete-source --confirm-delete-source <pack-id>`. If `.sos-archive/` is partially deleted between apply and restore, SOS will refuse the restore and surface the missing entries.
