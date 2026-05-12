@@ -204,6 +204,7 @@ def _handle_apply(args: argparse.Namespace) -> int:
             result.backup_id,
             codex_config_path=context["codex_config_path"],
             active_skill_root=context["active_skill_root"],
+            host=host,
         )
     print(f"apply status: {result.status}")
     if result.backup_id:
@@ -483,17 +484,20 @@ def _annotate_backup_metadata(
     backup_id: str,
     codex_config_path: Path,
     active_skill_root: Path,
+    host: str,
 ) -> None:
     metadata_path = runtime_paths.backups / backup_id / "metadata.toml"
     if not metadata_path.exists():
         return
     metadata = read_toml(metadata_path)
-    next_metadata = {
+    next_metadata: dict[str, Any] = {
         **metadata,
-        "codex_config_path": str(codex_config_path),
         "vault_root": str(runtime_paths.vault),
         "active_skill_root": str(active_skill_root),
+        "host": host,
     }
+    if host == "codex":
+        next_metadata["codex_config_path"] = str(codex_config_path)
     write_toml(metadata_path, next_metadata)
 
 

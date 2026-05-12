@@ -1204,3 +1204,42 @@ def test_restore_rejects_backslash_traversal_on_windows(tmp_path: Path):
 
     assert not outside_config.exists()
     assert not outside_vault.exists()
+
+
+def test_cli_changes_claude_without_codex_config(tmp_path):
+    from sos.cli import main
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+
+    # changes is read-only; just confirm it runs without --codex-config under host=claude.
+    exit_code = main([
+        "changes",
+        "--host", "claude",
+        "--root", str(skill_root),
+        "--runtime-root", str(runtime_root),
+    ])
+    assert exit_code == 0
+
+
+def test_cli_changes_claude_with_codex_config_rejected(tmp_path):
+    from sos.cli import main
+    import pytest
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir()
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="codex-config"):
+        main([
+            "changes",
+            "--host", "claude",
+            "--root", str(skill_root),
+            "--runtime-root", str(runtime_root),
+            "--codex-config", str(codex_config_path),
+        ])
