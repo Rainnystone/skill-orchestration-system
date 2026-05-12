@@ -139,6 +139,27 @@ def test_workspace_activation_apply_rolls_back_on_asahina_render_failure(
     assert not (workspace_skill_root / "sos-docs").exists()
 
 
+def test_workspace_activation_apply_removes_agents_skeleton_on_asahina_render_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    plan = build_workspace_activation_plan(runtime_paths, workspace_root, ("docs",))
+
+    def fail_asahina(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("sos.workspace_activation.render_asahina_skill", fail_asahina)
+
+    result = apply_workspace_activation_plan(plan, runtime_paths, apply=True)
+
+    assert result.status == "failed"
+    assert result.message == "boom"
+    assert not (workspace_root / ".agents").exists()
+    assert not (workspace_root / ".agents" / "skills").exists()
+
+
 def test_workspace_activation_preserves_existing_learned_reference_content(
     tmp_path: Path,
 ):

@@ -291,9 +291,7 @@ def _snapshot_targets(
     snapshot_root = Path(tempfile.mkdtemp(prefix="sos-workspace-activation-"))
     rollback_paths = _unique_paths(
         (
-            validated.nagato_target.parent,
-            *tuple(target.parent for target in validated.pointer_targets),
-            validated.asahina_target.parent,
+            validated.workspace_skill_root.parent,
             validated.learned_reference_target.parent,
         )
     )
