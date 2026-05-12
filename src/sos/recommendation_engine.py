@@ -250,7 +250,7 @@ def _preferred_targets(
             continue
         if current_workspace != workspace_id:
             continue
-        if current_tags and not current_tags.intersection(scenario_tags):
+        if not current_tags or not current_tags.intersection(scenario_tags):
             continue
         values = stripped[len(prefix) :].split(",")
         for value in values:
