@@ -299,5 +299,11 @@ def test_claude_delete_source_removes_archive_entry(tmp_path):
     )
 
     assert result.status == "applied"
+    # Original source folder must be gone (proves MOVE_TO_ARCHIVE ran).
+    assert not (skill_root / "demo-skill").exists()
+    # Archive leaf is removed (proves DELETE_SOURCE ran on the archive entry).
     archived = skill_root / ".sos-archive" / "demo" / "demo-skill"
     assert not archived.exists()
+    # The pack-level parent stays (proves the archive structure was actually created
+    # before deletion; DELETE_SOURCE only removes the leaf, not the parent directory).
+    assert (skill_root / ".sos-archive" / "demo").is_dir()

@@ -7,6 +7,8 @@ from pathlib import Path
 
 from sos.models import WriteOperation
 
+ARCHIVE_DIR_NAME = ".sos-archive"
+
 
 @dataclass(frozen=True)
 class ArchiveMove:

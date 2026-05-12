@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from sos._archive import ARCHIVE_DIR_NAME
 from sos.models import (
     OperationKind,
     PackManifest,
@@ -387,7 +388,7 @@ def _delete_source_candidate_operation(
     skill: SkillEntry,
 ) -> WriteOperation:
     if manifest.host == "claude":
-        target = active_root / ".sos-archive" / manifest.id / skill.name
+        target = active_root / ARCHIVE_DIR_NAME / manifest.id / skill.name
     else:
         target = skill.source_path
     _ensure_under(target, active_root, "delete source target path")
@@ -421,7 +422,7 @@ def _move_to_archive_operation(
     skill: SkillEntry,
     host: str,
 ) -> WriteOperation:
-    archive_target = active_root / ".sos-archive" / manifest.id / skill.name
+    archive_target = active_root / ARCHIVE_DIR_NAME / manifest.id / skill.name
     _ensure_under(skill.source_path, active_root, "archive source path")
     _ensure_under(archive_target, active_root, "archive target path")
     return WriteOperation(

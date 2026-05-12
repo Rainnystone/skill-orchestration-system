@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from sos._archive import ArchiveMove, execute_move_to_archive, rollback_archive_moves
+from sos._archive import ARCHIVE_DIR_NAME, ArchiveMove, execute_move_to_archive, rollback_archive_moves
 from sos.backups import create_backup
 from sos.codex_config import disable_skill_paths_with_backup
 from sos.fingerprint import fingerprint_dir
@@ -551,7 +551,7 @@ def _validate_archive_operations(
     manifests: tuple[PackManifest, ...],
 ) -> tuple[WriteOperation, ...]:
     expected = tuple(
-        (skill.source_path, active_root / ".sos-archive" / manifest.id / skill.name)
+        (skill.source_path, active_root / ARCHIVE_DIR_NAME / manifest.id / skill.name)
         for manifest in manifests
         for skill in manifest.skills
     )
@@ -564,7 +564,7 @@ def _validate_archive_operations(
     if actual != expected:
         raise ValueError("archive operations do not match manifest skills")
 
-    archive_root = active_root / ".sos-archive"
+    archive_root = active_root / ARCHIVE_DIR_NAME
     for operation, (source, target) in zip(operations, actual, strict=True):
         _ensure_under(source, active_root, "archive source path")
         _ensure_under(target, archive_root, "archive target path")
@@ -589,7 +589,7 @@ def _validate_delete_candidates(
         )
     else:  # claude
         expected = tuple(
-            (active_root / ".sos-archive" / manifest.id / skill.name, manifest.id, skill.name)
+            (active_root / ARCHIVE_DIR_NAME / manifest.id / skill.name, manifest.id, skill.name)
             for manifest in manifests
             for skill in manifest.skills
         )
