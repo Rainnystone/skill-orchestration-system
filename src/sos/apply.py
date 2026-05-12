@@ -48,6 +48,7 @@ class _ValidatedPlan:
     pointer_targets: tuple[Path, ...]
     disabled_skill_md_paths: tuple[Path, ...]
     delete_source_candidates: tuple["_DeleteSourceCandidate", ...]
+    archive_operations: tuple[WriteOperation, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -326,14 +327,17 @@ def _validate_plan(
             config_path,
             manifests,
         )
+        archive_operations: tuple[WriteOperation, ...] = ()
     else:
         disabled_skill_md_paths = ()
+        archive_operations = _validate_archive_operations(plan, active_root, manifests)
     delete_source_candidates = _validate_delete_candidates(plan, active_root, manifests)
     return _ValidatedPlan(
         manifests=manifests,
         pointer_targets=pointer_targets,
         disabled_skill_md_paths=disabled_skill_md_paths,
         delete_source_candidates=delete_source_candidates,
+        archive_operations=archive_operations,
     )
 
 
@@ -524,6 +528,38 @@ def _validate_disable_operations(
     return actual_paths
 
 
+def _validate_archive_operations(
+    plan: WritePlan,
+    active_root: Path,
+    manifests: tuple[PackManifest, ...],
+) -> tuple[WriteOperation, ...]:
+    expected = tuple(
+        (skill.source_path, active_root / ".sos-archive" / manifest.id / skill.name)
+        for manifest in manifests
+        for skill in manifest.skills
+    )
+    operations = _operations_of_kind(plan, OperationKind.MOVE_TO_ARCHIVE)
+    actual = tuple(
+        (_required_path(operation.source), _required_path(operation.target))
+        for operation in operations
+    )
+
+    if actual != expected:
+        raise ValueError("archive operations do not match manifest skills")
+
+    archive_root = active_root / ".sos-archive"
+    for operation, (source, target) in zip(operations, actual, strict=True):
+        _ensure_under(source, active_root, "archive source path")
+        _ensure_under(target, archive_root, "archive target path")
+        if _is_plugin_cache_path(source):
+            raise ValueError(f"refusing to archive source path inside plugin cache: {source}")
+        if _is_plugin_cache_path(target):
+            raise ValueError(f"refusing to archive into plugin cache: {target}")
+        if operation.metadata.get("host") != "claude":
+            raise ValueError("archive operation metadata must declare host=claude")
+    return operations
+
+
 def _validate_delete_candidates(
     plan: WritePlan,
     active_root: Path,
@@ -627,6 +663,7 @@ def _is_plugin_cache_path(path: Path) -> bool:
     parts = path.resolve(strict=False).parts
     return any(
         parts[index : index + 3] == (".codex", "plugins", "cache")
+        or parts[index : index + 3] == (".claude", "plugins", "cache")
         for index in range(len(parts) - 2)
     )
 
