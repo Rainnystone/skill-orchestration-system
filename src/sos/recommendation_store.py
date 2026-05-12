@@ -22,6 +22,7 @@ _SELECTION_EVENTS_FILENAME = "selection-events.jsonl"
 _LEARNED_REFERENCE_FILENAME = "asahina-reference.md"
 _MAX_SCENARIO_LABEL_LENGTH = 80
 _SAFE_IDENTIFIER_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{0,63})?$")
+_SAFE_SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,63})?$")
 _SELECTION_EVENT_FIELDS = (
     "schema_version",
     "created_at",
@@ -244,7 +245,7 @@ def _validate_selection_event(event: SelectionEvent) -> None:
     _validate_identifier_values(event.scenario_tags, "scenario_tag")
     _validate_scenario_label(event.scenario_label, event.scenario_tags)
     _validate_identifier_values(event.selected_pack_ids, "selected_pack_id")
-    _validate_identifier_values(event.selected_skill_names, "selected_skill_name")
+    _validate_skill_name_values(event.selected_skill_names, "selected_skill_name")
     _validate_identifier_like(event.manifest_fingerprint, "manifest_fingerprint")
     _validate_identifier_values((event.selection_source,), "selection_source")
     _validate_identifier_values((event.outcome,), "outcome")
@@ -276,6 +277,16 @@ def _validate_identifier_values(values: tuple[str, ...], label: str) -> None:
         raise ValueError(f"unsafe {label}: duplicate")
     for value in values:
         if not _SAFE_IDENTIFIER_RE.fullmatch(value):
+            raise ValueError(f"unsafe {label}: {value}")
+
+
+def _validate_skill_name_values(values: tuple[str, ...], label: str) -> None:
+    if not values:
+        raise ValueError(f"unsafe {label}: empty")
+    if len(set(values)) != len(values):
+        raise ValueError(f"unsafe {label}: duplicate")
+    for value in values:
+        if not _SAFE_SKILL_NAME_RE.fullmatch(value):
             raise ValueError(f"unsafe {label}: {value}")
 
 

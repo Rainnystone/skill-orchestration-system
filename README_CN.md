@@ -137,8 +137,10 @@ WORKSPACE_ROOT/.agents/skills/
 如果用户接受了推荐，可以记录这个本地事实：
 
 ```bash
-sos recommend record-selection --runtime-root RUNTIME_ROOT --workspace-root WORKSPACE_ROOT --scenario-label docs --scenario-tags docs --packs docs --skills documents --manifest-fingerprint sha256:example
+sos recommend record-selection --runtime-root RUNTIME_ROOT --workspace-root WORKSPACE_ROOT --scenario-label docs --scenario-tags docs --packs docs --skills documents --manifest-fingerprint MANIFEST_FINGERPRINT
 ```
+
+这里要使用 `sos recommend context` 输出的 `manifest_fingerprint`。如果 runtime manifests 已经变了，SOS 会拒绝旧 fingerprint，免得过期历史教 `sos-nagato` 学到奇怪东西。
 
 当你明确想刷新 learned reference 时：
 
@@ -147,7 +149,7 @@ sos recommend learn --runtime-root RUNTIME_ROOT
 sos recommend learn --runtime-root RUNTIME_ROOT --apply
 ```
 
-`learn` 会先用当前 runtime manifests 校验历史记录。对不上真实 pack 或 skill 的旧记录、手写 JSONL 或过期数据会被跳过，不会变成新的推荐依据。
+`learn` 会先用当前 runtime manifests 和 fingerprint 校验历史记录。对不上真实 pack、skill 或 manifest 状态的旧记录、手写 JSONL 或过期数据会被跳过，不会变成新的推荐依据。
 
 ## 怎么安装 SOS
 

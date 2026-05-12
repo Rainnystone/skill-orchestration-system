@@ -78,6 +78,19 @@ def test_append_load_round_trip_uses_compact_schema_without_forbidden_fields(tmp
     assert loaded == (event,)
 
 
+def test_append_selection_event_allows_manifest_backed_mixed_case_skill_names(
+    tmp_path: Path,
+):
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    event = _selection_event(selected_skill_names=("OpenBrowser", "docs_writer"))
+
+    path = recommendation_store.append_selection_event(runtime_paths, event)
+
+    loaded = recommendation_store.load_selection_events(runtime_paths)
+    assert path.exists()
+    assert loaded == (event,)
+
+
 @pytest.mark.parametrize(
     ("overrides", "message"),
     (

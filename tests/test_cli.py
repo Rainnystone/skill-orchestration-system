@@ -10,7 +10,7 @@ from sos.manifest import save_pack_manifest, save_registry
 from sos.models import PackManifest, Registry, SkillEntry
 from sos.paths import RuntimePaths
 from sos.pointer import render_companion_skill
-from sos.cli import main
+from sos.cli import _runtime_manifest_fingerprint, main
 from sos.recommendation_store import learned_reference_path, selection_events_path
 from sos.toml_io import read_toml, write_toml
 
@@ -449,7 +449,7 @@ def test_recommend_commands_redact_local_paths_from_stdout(capsys, tmp_path: Pat
                 "--skills",
                 "documents",
                 "--manifest-fingerprint",
-                "sha256:docs",
+                _runtime_manifest_fingerprint(runtime_paths),
             ]
         )
         == 0
@@ -661,7 +661,7 @@ def test_recommend_record_selection_and_learn(capsys, tmp_path: Path):
                 "--skills",
                 "documents",
                 "--manifest-fingerprint",
-                "sha256:docs",
+                _runtime_manifest_fingerprint(runtime_paths),
             ]
         )
         assert exit_code == 0
@@ -759,6 +759,53 @@ def test_recommend_learn_skips_history_that_does_not_match_runtime_manifests(
     assert "Status: empty" in learned_text
 
 
+def test_recommend_learn_skips_history_with_stale_manifest_fingerprint(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    stale_events = [
+        {
+            "schema_version": 1,
+            "created_at": f"2026-05-12T10:00:0{index}+00:00",
+            "workspace_id": "sha256:stale-manifest",
+            "scenario_label": "docs",
+            "scenario_tags": ["docs"],
+            "selected_pack_ids": ["docs"],
+            "selected_skill_names": ["documents"],
+            "manifest_fingerprint": "sha256:old-runtime-manifest",
+            "selection_source": "user_accepted",
+            "outcome": "activated",
+        }
+        for index in range(10)
+    ]
+    events_path = selection_events_path(runtime_paths)
+    events_path.parent.mkdir(parents=True, exist_ok=True)
+    events_path.write_text(
+        "".join(json.dumps(event, separators=(",", ":")) + "\n" for event in stale_events),
+        encoding="utf-8",
+    )
+
+    learn_exit = main(
+        [
+            "recommend",
+            "learn",
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--apply",
+        ]
+    )
+
+    assert learn_exit == 0
+    learned_text = learned_reference_path(runtime_paths).read_text(encoding="utf-8")
+    assert "Prefer recommending: docs" not in learned_text
+    assert "Status: empty" in learned_text
+
+
 def test_recommend_record_selection_canonicalizes_duplicate_and_ordered_values(
     tmp_path: Path,
 ):
@@ -788,7 +835,7 @@ def test_recommend_record_selection_canonicalizes_duplicate_and_ordered_values(
             "--skills",
             "documents,documents",
             "--manifest-fingerprint",
-            "sha256:docs",
+            _runtime_manifest_fingerprint(runtime_paths),
         ]
     )
 
@@ -883,7 +930,7 @@ def test_recommend_record_selection_rejects_empty_packs_and_skills(tmp_path: Pat
                 "--skills",
                 "documents",
                 "--manifest-fingerprint",
-                "sha256:docs",
+                _runtime_manifest_fingerprint(runtime_paths),
             ]
         )
 
@@ -905,7 +952,7 @@ def test_recommend_record_selection_rejects_empty_packs_and_skills(tmp_path: Pat
                 "--skills",
                 ",",
                 "--manifest-fingerprint",
-                "sha256:docs",
+                _runtime_manifest_fingerprint(runtime_paths),
             ]
         )
 
@@ -938,7 +985,7 @@ def test_recommend_record_selection_rejects_unsafe_persisted_values(tmp_path: Pa
                 "--skills",
                 "documents",
                 "--manifest-fingerprint",
-                "sha256:docs",
+                _runtime_manifest_fingerprint(runtime_paths),
             ]
         )
 
@@ -960,7 +1007,7 @@ def test_recommend_record_selection_rejects_unsafe_persisted_values(tmp_path: Pa
                 "--skills",
                 "documents",
                 "--manifest-fingerprint",
-                "sha256:docs",
+                _runtime_manifest_fingerprint(runtime_paths),
             ]
         )
 
@@ -982,7 +1029,7 @@ def test_recommend_record_selection_rejects_unsafe_persisted_values(tmp_path: Pa
                 "--skills",
                 "documents",
                 "--manifest-fingerprint",
-                "sha256:docs",
+                _runtime_manifest_fingerprint(runtime_paths),
             ]
         )
 
@@ -1019,7 +1066,7 @@ def test_recommend_record_selection_rejects_unknown_runtime_pack_or_skill(
                 "--skills",
                 "documents",
                 "--manifest-fingerprint",
-                "sha256:docs",
+                _runtime_manifest_fingerprint(runtime_paths),
             ]
         )
 
@@ -1041,7 +1088,7 @@ def test_recommend_record_selection_rejects_unknown_runtime_pack_or_skill(
                 "--skills",
                 "not-a-real-skill",
                 "--manifest-fingerprint",
-                "sha256:docs",
+                _runtime_manifest_fingerprint(runtime_paths),
             ]
         )
 
@@ -1073,7 +1120,7 @@ def test_recommend_record_selection_rejects_pack_without_selected_skill(
                 "--skills",
                 "documents",
                 "--manifest-fingerprint",
-                "sha256:docs-browser",
+                _runtime_manifest_fingerprint(runtime_paths),
             ]
         )
 
@@ -1106,7 +1153,7 @@ def test_recommend_learn_preview_does_not_write_reference(capsys, tmp_path: Path
                 "--skills",
                 "documents",
                 "--manifest-fingerprint",
-                f"sha256:{index}",
+                _runtime_manifest_fingerprint(runtime_paths),
             ]
         )
     capsys.readouterr()

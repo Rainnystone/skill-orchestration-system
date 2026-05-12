@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from sos.apply import ApplyResult
+from sos.backups import create_workspace_activation_backup
 from sos.models import OperationKind, PackManifest, WriteOperation, WritePlan
 from sos.pack_inspect import list_pack_manifests
 from sos.paths import RuntimePaths
@@ -48,7 +49,7 @@ def build_workspace_activation_plan(
     workspace_root: str | Path,
     pack_ids: tuple[str, ...],
 ) -> WritePlan:
-    workspace_root_path = Path(workspace_root)
+    workspace_root_path = _workspace_root_path(workspace_root)
     workspace_skill_root = workspace_root_path / ".agents" / "skills"
     manifests = _selected_manifests(runtime_paths, pack_ids)
     operations = (
@@ -78,11 +79,18 @@ def apply_workspace_activation_plan(
     validated = _validate_workspace_activation_plan(
         plan,
         runtime_paths,
-        Path(workspace_root),
+        _workspace_root_path(workspace_root),
     )
     if not apply:
         return ApplyResult(status="planned", operations=plan.operations)
 
+    backup = create_workspace_activation_backup(
+        runtime_paths,
+        validated.workspace_root,
+        validated.workspace_skill_root.parent,
+        validated.learned_reference_target,
+        reason="workspace activation apply",
+    )
     snapshots, snapshot_root = _snapshot_targets(validated)
     try:
         render_nagato_skill(
@@ -111,7 +119,11 @@ def apply_workspace_activation_plan(
     finally:
         shutil.rmtree(snapshot_root, ignore_errors=True)
 
-    return ApplyResult(status="applied", operations=plan.operations)
+    return ApplyResult(
+        status="applied",
+        operations=plan.operations,
+        backup_id=backup.backup_id,
+    )
 
 
 def _plan_id(
@@ -127,6 +139,10 @@ def _plan_id(
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return f"workspace-activation-{hashlib.sha256(encoded).hexdigest()[:16]}"
+
+
+def _workspace_root_path(workspace_root: str | Path) -> Path:
+    return Path(workspace_root).expanduser()
 
 
 def _selected_manifests(

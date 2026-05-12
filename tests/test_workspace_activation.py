@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from sos.backups import list_backups, restore_backup
 from sos.manifest import save_pack_manifest, save_registry
 from sos.models import (
     OperationKind,
@@ -149,6 +150,64 @@ def test_workspace_activation_apply_writes_workspace_skills_pointer_and_stub(
     assert learned_reference_path(runtime_paths).read_text(encoding="utf-8") == (
         ASAHINA_EMPTY_REFERENCE
     )
+
+
+def test_workspace_activation_apply_creates_restorable_backup_for_existing_targets(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    workspace_skill_root = workspace_root / ".agents" / "skills"
+    existing_nagato = workspace_skill_root / "sos-nagato" / "SKILL.md"
+    existing_nagato.parent.mkdir(parents=True, exist_ok=True)
+    existing_nagato.write_text("ORIGINAL NAGATO\n", encoding="utf-8")
+    learned_path = learned_reference_path(runtime_paths)
+    learned_path.parent.mkdir(parents=True, exist_ok=True)
+    learned_path.write_text("ORIGINAL LEARNED\n", encoding="utf-8")
+    plan = build_workspace_activation_plan(runtime_paths, workspace_root, ("docs",))
+
+    result = apply_workspace_activation_plan(
+        plan,
+        runtime_paths,
+        workspace_root=workspace_root,
+        apply=True,
+    )
+    backups = list_backups(runtime_paths)
+
+    assert result.status == "applied"
+    assert len(backups) == 1
+    assert backups[0].metadata["scope"] == "workspace_activation"
+    assert existing_nagato.read_text(encoding="utf-8") != "ORIGINAL NAGATO\n"
+    assert learned_path.read_text(encoding="utf-8") == "ORIGINAL LEARNED\n"
+
+    restore_backup(
+        runtime_paths,
+        backups[0].backup_id,
+        codex_config_path=None,
+        vault_root=None,
+        apply=True,
+    )
+
+    assert existing_nagato.read_text(encoding="utf-8") == "ORIGINAL NAGATO\n"
+    assert learned_path.read_text(encoding="utf-8") == "ORIGINAL LEARNED\n"
+
+
+def test_workspace_activation_expands_home_relative_workspace_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+
+    plan = build_workspace_activation_plan(runtime_paths, "~/project", ("docs",))
+
+    targets = tuple(operation.target for operation in plan.operations if operation.target)
+    assert targets
+    for target in targets:
+        if target.name == "SKILL.md":
+            assert home / "project" / ".agents" / "skills" in target.parents
 
 
 def test_recommend_workspace_activation_redacts_absolute_paths_in_workspace_skills(

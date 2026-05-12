@@ -174,8 +174,12 @@ That includes:
 If the user accepts the recommendation, record that local fact:
 
 ```bash
-sos recommend record-selection --runtime-root RUNTIME_ROOT --workspace-root WORKSPACE_ROOT --scenario-label docs --scenario-tags docs --packs docs --skills documents --manifest-fingerprint sha256:example
+sos recommend record-selection --runtime-root RUNTIME_ROOT --workspace-root WORKSPACE_ROOT --scenario-label docs --scenario-tags docs --packs docs --skills documents --manifest-fingerprint MANIFEST_FINGERPRINT
 ```
+
+Use the `manifest_fingerprint` printed by `sos recommend context`. If the
+runtime manifests changed since that recommendation, SOS rejects the old
+fingerprint instead of letting stale history teach `sos-nagato` the wrong lesson.
 
 When you explicitly want to refresh the learned reference:
 
@@ -184,9 +188,9 @@ sos recommend learn --runtime-root RUNTIME_ROOT
 sos recommend learn --runtime-root RUNTIME_ROOT --apply
 ```
 
-`learn` validates historical records against the current runtime manifests
-before using them. Stale local records or hand-edited JSONL that no longer match
-real packs and skills are skipped.
+`learn` validates historical records against the current runtime manifests and
+their fingerprint before using them. Stale local records or hand-edited JSONL
+that no longer match real packs and skills are skipped.
 
 ## How To Install SOS
 

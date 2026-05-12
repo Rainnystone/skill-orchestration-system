@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -429,12 +430,13 @@ def _handle_backup_list(args: argparse.Namespace) -> int:
 def _handle_restore(args: argparse.Namespace) -> int:
     runtime_paths = RuntimePaths.from_root(args.runtime_root)
     codex_config_path, vault_root = _restore_targets(runtime_paths, args.backup_id)
-    codex_display = str(codex_config_path) if codex_config_path is not None else "(claude — no codex config)"
+    codex_display = str(codex_config_path) if codex_config_path is not None else "(no codex config)"
+    vault_display = str(vault_root) if vault_root is not None else "(no vault target)"
     if not args.apply:
         print("dry-run restore; no external files written")
         print(f"backup_id: {args.backup_id}")
         print(f"codex_config_path: {codex_display}")
-        print(f"vault_root: {vault_root}")
+        print(f"vault_root: {vault_display}")
         return 0
     record = restore_backup(
         runtime_paths,
@@ -445,7 +447,7 @@ def _handle_restore(args: argparse.Namespace) -> int:
     )
     print(f"restored: {record.backup_id}")
     print(f"codex_config_path: {codex_display}")
-    print(f"vault_root: {vault_root}")
+    print(f"vault_root: {vault_display}")
     return 0
 
 
@@ -475,6 +477,7 @@ def _handle_recommend_context(args: argparse.Namespace) -> int:
     print(f"workspace_id: {context.workspace_id}")
     print(f"workspace_kinds: {workspace_kinds}")
     print(f"runtime_packs: {len(context.pack_manifests)}")
+    print(f"manifest_fingerprint: {_runtime_manifest_fingerprint(runtime_paths)}")
     print(
         "learned_reference: "
         + ("present" if learned_path.is_file() else "missing")
@@ -551,6 +554,9 @@ def _handle_recommend_record_selection(args: argparse.Namespace) -> int:
         selected_pack_ids,
         selected_skill_names,
     )
+    current_manifest_fingerprint = _runtime_manifest_fingerprint(runtime_paths)
+    if args.manifest_fingerprint != current_manifest_fingerprint:
+        raise ValueError("manifest fingerprint does not match current runtime manifests")
     event = SelectionEvent(
         schema_version=1,
         created_at=_utc_now_isoformat(),
@@ -559,7 +565,7 @@ def _handle_recommend_record_selection(args: argparse.Namespace) -> int:
         scenario_tags=scenario_tags,
         selected_pack_ids=selected_pack_ids,
         selected_skill_names=selected_skill_names,
-        manifest_fingerprint=args.manifest_fingerprint,
+        manifest_fingerprint=current_manifest_fingerprint,
         selection_source="user_accepted",
         outcome="activated",
     )
@@ -661,8 +667,11 @@ def _manifest_valid_selection_events(
     manifests_by_id = {
         manifest.id: manifest for manifest in list_pack_manifests(runtime_paths)
     }
+    current_manifest_fingerprint = _runtime_manifest_fingerprint(runtime_paths)
     valid_events: list[SelectionEvent] = []
     for event in events:
+        if event.manifest_fingerprint != current_manifest_fingerprint:
+            continue
         selected_pack_ids = set(event.selected_pack_ids)
         selected_skill_names = set(event.selected_skill_names)
         if not selected_pack_ids.issubset(manifests_by_id):
@@ -682,6 +691,18 @@ def _manifest_valid_selection_events(
             continue
         valid_events.append(event)
     return tuple(valid_events)
+
+
+def _runtime_manifest_fingerprint(runtime_paths: RuntimePaths) -> str:
+    digest = hashlib.sha256()
+    for manifest in sorted(list_pack_manifests(runtime_paths), key=lambda item: item.id):
+        manifest_path = runtime_paths.packs / f"{manifest.id}.toml"
+        digest.update(manifest.id.encode("utf-8"))
+        digest.update(b"\0")
+        if manifest_path.is_file():
+            digest.update(manifest_path.read_bytes())
+        digest.update(b"\0")
+    return f"sha256:{digest.hexdigest()}"
 
 
 def _redacted_runtime_path(path: str | Path, runtime_paths: RuntimePaths) -> str:
@@ -800,10 +821,12 @@ def _validate_delete_source_args(args: argparse.Namespace) -> None:
         raise ValueError("--delete-source requires --confirm-delete-source")
 
 
-def _restore_targets(runtime_paths: RuntimePaths, backup_id: str) -> tuple[Path | None, Path]:
+def _restore_targets(runtime_paths: RuntimePaths, backup_id: str) -> tuple[Path | None, Path | None]:
     _safe_component(backup_id, "backup_id")
     metadata_path = runtime_paths.backups / backup_id / "metadata.toml"
     metadata = read_toml(metadata_path)
+    if metadata.get("scope") == "workspace_activation":
+        return None, None
     if "vault_root" not in metadata:
         raise ValueError("backup restore metadata must include vault_root")
     host = str(metadata.get("host", "codex"))
