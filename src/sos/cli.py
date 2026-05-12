@@ -524,6 +524,11 @@ def _handle_recommend_record_selection(args: argparse.Namespace) -> int:
     selected_skill_names = _csv_tuple(args.skills)
     if not selected_skill_names:
         raise ValueError("--skills must include at least one value")
+    _validate_recommendation_selection(
+        runtime_paths,
+        selected_pack_ids,
+        selected_skill_names,
+    )
     event = SelectionEvent(
         schema_version=1,
         created_at=_utc_now_isoformat(),
@@ -573,6 +578,29 @@ def _redacted_recommendation_plan_summary(
     if plan_path is not None:
         replacements.append((Path(plan_path), "WORKSPACE_PLAN"))
     return _redact_local_paths(summarize_write_plan(plan), replacements)
+
+
+def _validate_recommendation_selection(
+    runtime_paths: RuntimePaths,
+    selected_pack_ids: tuple[str, ...],
+    selected_skill_names: tuple[str, ...],
+) -> None:
+    manifests_by_id = {manifest.id: manifest for manifest in list_pack_manifests(runtime_paths)}
+    selected_manifests = []
+    for pack_id in selected_pack_ids:
+        manifest = manifests_by_id.get(pack_id)
+        if manifest is None:
+            raise ValueError(f"unknown selected pack: {pack_id}")
+        selected_manifests.append(manifest)
+
+    skill_names = {
+        skill.name
+        for manifest in selected_manifests
+        for skill in manifest.skills
+    }
+    for skill_name in selected_skill_names:
+        if skill_name not in skill_names:
+            raise ValueError(f"selected skill not in selected packs: {skill_name}")
 
 
 def _redacted_runtime_path(path: str | Path, runtime_paths: RuntimePaths) -> str:

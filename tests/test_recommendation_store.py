@@ -226,6 +226,41 @@ def test_ten_repeated_activated_selections_produce_learned_reference(tmp_path: P
     assert "Evidence: 10 accepted selections" in reference
 
 
+def test_learned_reference_preserves_multiple_eligible_workspace_blocks():
+    events: list[recommendation_store.SelectionEvent] = []
+    for index in range(10):
+        events.append(
+            _selection_event(
+                created_at=f"2026-05-12T10:00:0{index}+00:00",
+                workspace_id="sha256:docs-workspace",
+                scenario_label="docs planning",
+                scenario_tags=("docs", "planning"),
+                selected_pack_ids=("docs",),
+                selected_skill_names=("documents",),
+            )
+        )
+        events.append(
+            _selection_event(
+                created_at=f"2026-05-12T10:01:0{index}+00:00",
+                workspace_id="sha256:browser-workspace",
+                scenario_label="browser",
+                scenario_tags=("browser",),
+                selected_pack_ids=("browser",),
+                selected_skill_names=("open-browser",),
+            )
+        )
+
+    reference = recommendation_store.build_learned_reference(events)
+
+    assert reference.count("Workspace: ") == 2
+    assert "Workspace: sha256:docs-workspace" in reference
+    assert "Scenario tags: docs, planning" in reference
+    assert "Prefer recommending: docs" in reference
+    assert "Workspace: sha256:browser-workspace" in reference
+    assert "Scenario tags: browser" in reference
+    assert "Prefer recommending: browser" in reference
+
+
 def test_learned_reference_does_not_merge_events_from_different_workspaces(tmp_path: Path):
     runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
     path = recommendation_store.selection_events_path(runtime_paths)

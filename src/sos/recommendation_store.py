@@ -101,30 +101,31 @@ def load_selection_events(runtime_paths: RuntimePaths) -> tuple[SelectionEvent, 
 
 
 def build_learned_reference(events: Iterable[SelectionEvent]) -> str:
-    best_key: tuple[str, str, tuple[str, ...], tuple[str, ...]] | None = None
-    best_count = 0
-
-    for event, count in _count_user_accepted_activation_events(events).items():
-        if count > best_count or (count == best_count and best_key is not None and event < best_key):
-            best_key = event
-            best_count = count
-        elif best_key is None:
-            best_key = event
-            best_count = count
-
-    if best_key is None or best_count < 10:
+    eligible = tuple(
+        sorted(
+            (event, count)
+            for event, count in _count_user_accepted_activation_events(events).items()
+            if count >= 10
+        )
+    )
+    if not eligible:
         return ASAHINA_EMPTY_REFERENCE
 
-    workspace_id, scenario_label, scenario_tags, selected_pack_ids = best_key
-    prefer_recommending = ", ".join(selected_pack_ids)
-    return (
-        "## Learned Recommendation Hints\n\n"
-        f"Workspace: {workspace_id}\n"
-        f"Scenario: {scenario_label}\n"
-        f"Scenario tags: {', '.join(scenario_tags)}\n"
-        f"Prefer recommending: {prefer_recommending}\n"
-        f"Evidence: {best_count} accepted selections\n"
-    )
+    lines = ["## Learned Recommendation Hints", ""]
+    for event, count in eligible:
+        workspace_id, scenario_label, scenario_tags, selected_pack_ids = event
+        prefer_recommending = ", ".join(selected_pack_ids)
+        lines.extend(
+            (
+                f"Workspace: {workspace_id}",
+                f"Scenario: {scenario_label}",
+                f"Scenario tags: {', '.join(scenario_tags)}",
+                f"Prefer recommending: {prefer_recommending}",
+                f"Evidence: {count} accepted selections",
+                "",
+            )
+        )
+    return "\n".join(lines)
 
 
 def write_learned_reference(runtime_paths: RuntimePaths, reference: str, apply: bool) -> Path:

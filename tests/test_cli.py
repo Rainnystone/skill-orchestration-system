@@ -828,6 +828,65 @@ def test_recommend_record_selection_rejects_unsafe_persisted_values(tmp_path: Pa
     assert not selection_events_path(runtime_paths).exists()
 
 
+def test_recommend_record_selection_rejects_unknown_runtime_pack_or_skill(
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+
+    with pytest.raises(ValueError, match="unknown selected pack"):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                "docs",
+                "--scenario-tags",
+                "docs",
+                "--packs",
+                "not-a-real-pack",
+                "--skills",
+                "documents",
+                "--manifest-fingerprint",
+                "sha256:docs",
+            ]
+        )
+
+    with pytest.raises(ValueError, match="selected skill not in selected packs"):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                "docs",
+                "--scenario-tags",
+                "docs",
+                "--packs",
+                "docs",
+                "--skills",
+                "not-a-real-skill",
+                "--manifest-fingerprint",
+                "sha256:docs",
+            ]
+        )
+
+    assert not selection_events_path(runtime_paths).exists()
+
+
 def test_recommend_learn_preview_does_not_write_reference(capsys, tmp_path: Path):
     runtime_paths, _ = _write_runtime_pack(
         tmp_path / ".sos",
