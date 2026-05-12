@@ -7,7 +7,7 @@
 Skill Orchestration System，简称 SOS，是一个面向 Codex 用户的本地 skill
 整理系统。它把越来越多的本地 agent skills 整理成更小、更清楚、可审查、可激活、可回滚的技能包。它会先写计划，再写文件；先做 dry run，再真正 apply；先备份，再修改。
 
-当前 SOS 是 Codex-first。Claude Code 兼容性只保留结构入口，还没有接入专用安装器、settings 写入器或集成测试。
+SOS 同时支持 Codex 和 Claude Code 两种宿主。通过每条写入命令的 `--host {codex,claude}` 参数选择宿主。
 
 ## 为什么需要 SOS
 
@@ -224,6 +224,38 @@ sos apply --plan PLAN_PATH
 sos apply --plan PLAN_PATH --apply
 ```
 
+### Claude Code 工作流
+
+Claude Code 使用相同的流程，只需加上 `--host claude`。skill root 通常是 `~/.claude/skills`（项目级工作区中也可以是 `.claude/skills`）。先检查，不写入：
+
+```bash
+sos scan --root ~/.claude/skills
+sos propose --root ~/.claude/skills
+```
+
+生成 Claude 计划（不传 `--codex-config`——Claude 没有中央 skill 注册表）：
+
+```bash
+sos plan --host claude --root ~/.claude/skills --runtime-root ~/.sos --out plan.toml
+```
+
+同时传入 `--codex-config` 和 `--host claude` 会被拒绝；在 `--host codex` 或不指定 host 的情况下传入 `--codex-config` 仍然有效，指向 Codex config TOML。
+
+先 dry run，再 apply：
+
+```bash
+sos apply --plan plan.toml
+sos apply --plan plan.toml --host claude --apply
+```
+
+Apply 后，原始 skill 目录会被移动到 `~/.claude/skills/.sos-archive/<pack-id>/<name>/`，Claude 将不再发现它们。`sos-<pack>` pointer skills 成为 active 层入口。
+
+恢复时，归档目录会被移回原处：
+
+```bash
+sos restore <backup-id> --runtime-root ~/.sos --apply
+```
+
 ## 安全模型
 
 SOS 默认很保守。
@@ -294,9 +326,9 @@ pack proposal 是确定性的。SOS 会先看 Agent Skill head metadata，尤其
 | --- | --- | --- |
 | `sos scan --root <path> [--codex-config <path>]` | 列出某个目录下已启用的 skills。 | 否 |
 | `sos propose --root <path>` | 根据扫描结果提出技能包候选。 | 否 |
-| `sos plan --root <path> --runtime-root <path> --codex-config <path> --out <path>` | 写出可审查的计划文件。 | 只写计划文件 |
-| `sos apply --plan <path>` | 汇总计划内容，做 dry run。 | 否 |
-| `sos apply --plan <path> --apply` | 复制 skills、写 manifest 和 pointer、禁用原入口并创建备份。 | 是 |
+| `sos plan --host <host> --root <path> --runtime-root <path> --codex-config <path> --out <path>` | 写出可审查的计划文件。 | 只写计划文件 |
+| `sos apply --plan <path> [--host <host>]` | 汇总计划内容，做 dry run；未传 --host 时从计划文件中推断。 | 否 |
+| `sos apply --plan <path> [--host <host>] --apply` | 复制 skills、写 manifest 和 pointer、禁用原入口（Codex：写配置；Claude：移入 `.sos-archive`）并创建备份。 | 是 |
 | `sos pack activate <pack> --runtime-root <path>` | 激活技能包，并在符合条件时执行 clean sync。 | 可能 |
 | `sos pack list --runtime-root <path>` | 列出已写入的 runtime packs。 | 否 |
 | `sos pack show <pack> --runtime-root <path>` | 显示一个 pack 的 manifest 和其管理的 skills。 | 否 |
@@ -312,9 +344,12 @@ pack proposal 是确定性的。SOS 会先看 Agent Skill head metadata，尤其
 
 ## 兼容性
 
-SOS 当前是 Codex-first。经过测试的写入路径可以在创建备份后更新 Codex skill 配置，并且只有显式传入 `--apply` 时才会写入。
+SOS 支持两种宿主：
 
-Claude Code 兼容性目前只是结构层面的：生成的 skills 是普通 `SKILL.md` 文件夹，pack 元数据是普通 TOML manifest。SOS 还没有 Claude Code 专用安装器、settings 写入器或集成测试。
+- **Codex**：写入路径在创建备份后更新 Codex skill 配置，且只有传入 `--apply` 时才会写入。
+- **Claude Code**：写入路径将被禁用的源目录移入 `<skill-root>/.sos-archive/<pack-id>/<name>/`，使 Claude 不再发现它们；同样在创建 vault 备份后执行，且只有传入 `--apply` 时才会写入。
+
+生成的 skills 是普通 `SKILL.md` 文件夹，pack 元数据存储为普通 TOML manifest。通过每条写入命令的 `--host {codex,claude}` 参数选择宿主。
 
 ## 开发
 

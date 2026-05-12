@@ -9,8 +9,8 @@ skill library into small, reviewable, activatable packs. It keeps the active
 surface area tidy, writes plans before it writes files, and gives you a way back
 when an experiment does not deserve to become permanent.
 
-SOS is Codex-first today. Claude Code compatibility is kept as a structural
-opening, but Claude-specific integration is not wired up yet.
+SOS supports Codex and Claude Code. Use `--host {codex,claude}` to select the
+host per write command.
 
 ## Why SOS Exists
 
@@ -258,6 +258,38 @@ Only after reviewing the plan:
 sos apply --plan PLAN_PATH --apply
 ```
 
+### Claude Code Workflow
+
+For Claude Code, the same flow applies with `--host claude`. The skill root is typically `~/.claude/skills` (or `.claude/skills` in a project workspace). Inspect first:
+
+```bash
+sos scan --root ~/.claude/skills
+sos propose --root ~/.claude/skills
+```
+
+Create a Claude plan (no `--codex-config` — Claude has no central skill registry):
+
+```bash
+sos plan --host claude --root ~/.claude/skills --runtime-root ~/.sos --out plan.toml
+```
+
+Passing `--codex-config` with `--host claude` is rejected; passing it without `--host claude` (or with `--host codex`) still works and points at the Codex config TOML as before.
+
+Dry-run and apply:
+
+```bash
+sos apply --plan plan.toml
+sos apply --plan plan.toml --host claude --apply
+```
+
+After apply, the original skill folders move to `~/.claude/skills/.sos-archive/<pack-id>/<name>/` and Claude no longer discovers them. The `sos-<pack>` pointer skills become the active surface.
+
+Restore brings the archived folders back:
+
+```bash
+sos restore <backup-id> --runtime-root ~/.sos --apply
+```
+
 ## Safety Model
 
 SOS is intentionally conservative.
@@ -342,9 +374,9 @@ hidden classifier.
 | --- | --- | --- |
 | `sos scan --root <path> [--codex-config <path>]` | List enabled skills under a root. | No |
 | `sos propose --root <path>` | Propose pack candidates from scanned skills. | No |
-| `sos plan --root <path> --runtime-root <path> --codex-config <path> --out <path>` | Write a reviewable plan file. | Only the plan file |
-| `sos apply --plan <path>` | Summarize a plan. | No |
-| `sos apply --plan <path> --apply` | Copy skills, write manifests and pointers, disable originals, and create backups. | Yes |
+| `sos plan --host <host> --root <path> --runtime-root <path> --codex-config <path> --out <path>` | Write a reviewable plan file. | Only the plan file |
+| `sos apply --plan <path> [--host <host>]` | Summarize a plan; host inferred from plan when omitted. | No |
+| `sos apply --plan <path> [--host <host>] --apply` | Copy skills, write manifests and pointers, disable originals (Codex: config write; Claude: move to `.sos-archive`), and create backups. | Yes |
 | `sos pack activate <pack> --runtime-root <path>` | Activate a pack and apply eligible clean syncs. | Sometimes |
 | `sos pack list --runtime-root <path>` | List written runtime packs. | No |
 | `sos pack show <pack> --runtime-root <path>` | Show one pack manifest and its managed skills. | No |
@@ -360,13 +392,12 @@ hidden classifier.
 
 ## Compatibility
 
-SOS is Codex-first. Its tested write path can update Codex skill configuration
-after creating backups and only when `--apply` is used.
+SOS supports two hosts:
 
-Claude Code compatibility is structural for now: generated skills are ordinary
-`SKILL.md` folders, and pack metadata is stored in plain TOML manifests. SOS
-does not yet provide a Claude Code installer, settings writer, or integration
-test suite.
+- **Codex**: write path updates Codex skill configuration after creating backups and only when `--apply` is used.
+- **Claude Code**: write path moves disabled source folders into `<skill-root>/.sos-archive/<pack-id>/<name>/` so Claude no longer discovers them, after creating a vault backup and only when `--apply` is used.
+
+Generated skills are ordinary `SKILL.md` folders, and pack metadata is stored in plain TOML manifests. The host is selected per write command via `--host {codex,claude}`.
 
 ## Development
 
