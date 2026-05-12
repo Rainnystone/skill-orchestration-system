@@ -17,6 +17,8 @@ class OperationKind(StrEnum):
     WRITE_MANIFEST = "write_manifest"
     WRITE_REGISTRY = "write_registry"
     WRITE_POINTER = "write_pointer"
+    WRITE_WORKSPACE_SKILL = "write_workspace_skill"
+    WRITE_LEARNED_REFERENCE_STUB = "write_learned_reference_stub"
     BACKUP_CODEX_CONFIG = "backup_codex_config"
     DISABLE_CODEX_SKILL = "disable_codex_skill"
     DELETE_SOURCE = "delete_source"

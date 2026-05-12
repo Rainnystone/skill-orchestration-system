@@ -1,0 +1,177 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from sos.manifest import save_pack_manifest, save_registry
+from sos.models import OperationKind, PackManifest, Registry, SkillEntry
+from sos.paths import RuntimePaths
+from sos.planner import load_write_plan, serialize_write_plan
+from sos.recommendation_store import (
+    ASAHINA_EMPTY_REFERENCE,
+    learned_reference_path,
+)
+from sos.workspace_activation import (
+    apply_workspace_activation_plan,
+    build_workspace_activation_plan,
+)
+
+
+def _runtime_paths(tmp_path: Path) -> RuntimePaths:
+    return RuntimePaths.from_root(tmp_path / ".sos")
+
+
+def _workspace_root(tmp_path: Path) -> Path:
+    return tmp_path / "workspace"
+
+
+def _write_source_skill(root: Path, name: str) -> Path:
+    skill_root = root / name
+    skill_root.mkdir(parents=True, exist_ok=True)
+    (skill_root / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {name} source skill.\n---\n# {name}\n",
+        encoding="utf-8",
+    )
+    return skill_root
+
+
+def _setup_runtime_docs_pack(tmp_path: Path) -> tuple[RuntimePaths, PackManifest]:
+    runtime_paths = _runtime_paths(tmp_path)
+    source_root = tmp_path / "source-skills"
+    source_skill = _write_source_skill(source_root, "documents")
+    manifest = PackManifest(
+        id="docs",
+        display_name="Docs",
+        pointer_skill="sos-docs",
+        aliases=("docs",),
+        description="Use this for documentation skills managed by SOS.",
+        vault_root=runtime_paths.vault / "docs",
+        skills=(
+            SkillEntry(
+                name="documents",
+                source_path=source_skill,
+                vault_path=runtime_paths.vault / "docs" / "documents",
+                description="documents source skill.",
+            ),
+        ),
+    )
+    save_pack_manifest(runtime_paths.packs / "docs.toml", manifest)
+    save_registry(
+        runtime_paths.state / "registry.toml",
+        Registry(
+            packs=(manifest,),
+            active_pointers=("sos-docs",),
+            aliases={"docs": "docs"},
+        ),
+    )
+    return runtime_paths, manifest
+
+
+def test_workspace_activation_dry_run_does_not_create_workspace_or_recommendation_dirs(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+
+    plan = build_workspace_activation_plan(runtime_paths, workspace_root, ("docs",))
+    result = apply_workspace_activation_plan(plan, runtime_paths, apply=False)
+
+    assert plan.requires_apply is True
+    assert plan.pack_ids == ("docs",)
+    assert result.status == "planned"
+    assert not (workspace_root / ".agents").exists()
+    assert not runtime_paths.state.joinpath("recommendations").exists()
+
+
+def test_workspace_activation_apply_writes_workspace_skills_pointer_and_stub(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+
+    plan = build_workspace_activation_plan(runtime_paths, workspace_root, ("docs",))
+    result = apply_workspace_activation_plan(plan, runtime_paths, apply=True)
+
+    workspace_skill_root = workspace_root / ".agents" / "skills"
+    assert result.status == "applied"
+    assert (workspace_skill_root / "sos-nagato" / "SKILL.md").exists()
+    assert (workspace_skill_root / "sos-asahina" / "SKILL.md").exists()
+    assert (workspace_skill_root / "sos-docs" / "SKILL.md").exists()
+    assert learned_reference_path(runtime_paths).read_text(encoding="utf-8") == (
+        ASAHINA_EMPTY_REFERENCE
+    )
+
+
+def test_workspace_activation_rejects_unknown_pack_id(tmp_path: Path):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+
+    with pytest.raises(ValueError, match="unknown pack"):
+        build_workspace_activation_plan(
+            runtime_paths,
+            _workspace_root(tmp_path),
+            ("unknown",),
+        )
+
+
+def test_workspace_activation_apply_rolls_back_on_asahina_render_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    workspace_skill_root = workspace_root / ".agents" / "skills"
+    preexisting_nagato = workspace_skill_root / "sos-nagato" / "SKILL.md"
+    preexisting_nagato.parent.mkdir(parents=True, exist_ok=True)
+    preexisting_nagato.write_text("PREEXISTING NAGATO\n", encoding="utf-8")
+    plan = build_workspace_activation_plan(runtime_paths, workspace_root, ("docs",))
+
+    def fail_asahina(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("sos.workspace_activation.render_asahina_skill", fail_asahina)
+
+    result = apply_workspace_activation_plan(plan, runtime_paths, apply=True)
+
+    assert result.status == "failed"
+    assert result.message == "boom"
+    assert preexisting_nagato.read_text(encoding="utf-8") == "PREEXISTING NAGATO\n"
+    assert not (workspace_skill_root / "sos-docs").exists()
+
+
+def test_workspace_activation_preserves_existing_learned_reference_content(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    learned_path = learned_reference_path(runtime_paths)
+    learned_path.parent.mkdir(parents=True, exist_ok=True)
+    learned_path.write_text("# Existing\n", encoding="utf-8")
+    plan = build_workspace_activation_plan(runtime_paths, workspace_root, ("docs",))
+
+    result = apply_workspace_activation_plan(plan, runtime_paths, apply=True)
+
+    assert result.status == "applied"
+    assert learned_path.read_text(encoding="utf-8") == "# Existing\n"
+
+
+def test_workspace_activation_plan_round_trips_with_new_operation_kinds(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    plan_path = tmp_path / "workspace-activation-plan.toml"
+
+    plan = build_workspace_activation_plan(runtime_paths, workspace_root, ("docs",))
+    serialize_write_plan(plan, plan_path)
+    loaded = load_write_plan(plan_path)
+
+    assert loaded.plan_id == plan.plan_id
+    assert loaded.pack_ids == ("docs",)
+    assert loaded.requires_apply is True
+    assert tuple(operation.kind for operation in loaded.operations) == (
+        OperationKind.WRITE_WORKSPACE_SKILL,
+        OperationKind.WRITE_POINTER,
+        OperationKind.WRITE_WORKSPACE_SKILL,
+        OperationKind.WRITE_LEARNED_REFERENCE_STUB,
+    )
