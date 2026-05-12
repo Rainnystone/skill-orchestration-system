@@ -1,136 +1,57 @@
-# Skill Orchestration System
+# SOS: Make Vibe Coding More Lively
 
 [English](README.md) | [中文](README_CN.md)
 
-Your agent skills should feel like a sharp toolbox, not a second junk drawer.
+Your agent skills should feel like a capable club room, not a storage closet
+where every old experiment has somehow earned permanent residency.
 
-Skill Orchestration System, or SOS, helps Codex users organize a growing local
-skill library into small, reviewable, activatable packs. It keeps the active
-surface area tidy, writes plans before it writes files, and gives you a way back
-when an experiment does not deserve to become permanent.
+Skill Orchestration System, or SOS, helps Codex users keep a growing local
+skill library organized. It scans local Agent Skills, proposes task-focused
+packs, writes reviewable plans before touching important files, and keeps
+rollback paths nearby. A shocking idea, I know: let the strange club do the
+paperwork before it rearranges the furniture.
 
-SOS is Codex-first today. Claude Code compatibility is kept as a structural
-opening, but Claude-specific integration is not wired up yet.
+SOS is Codex-first today. Claude Code compatibility is kept in the structure of
+the generated skills, but Claude-specific installation and settings writes are
+not wired up yet.
 
-## Why SOS Exists
+## Why You Need SOS
 
-Agent skills are powerful because they are easy to add. That is also the
-problem.
+Agent skills are easy to add. That is useful, right up until your skills folder
+starts looking like a group project nobody volunteered to clean.
 
-After a while, your skills folder can turn into a pile of half-related tools:
-old experiments, one-off workflows, plugin cache copies, personal helpers,
-generated pointers, and a few actually-important skills buried somewhere in the
-middle. Loading too much at once makes agents harder to steer. Moving files by
-hand is easy until a config write, backup, or rollback path is missed.
+After a few weeks, you may have old experiments, one-off workflows, plugin cache
+copies, personal helpers, and the few skills you actually need all living in the
+same place. If every skill stays active, the agent sees too much. If you move
+files by hand, you eventually miss a config entry, a backup, or a rollback path.
+Neither outcome is exactly the glorious future promised by vibe coding.
 
-SOS gives that mess a boring, useful shape:
+SOS gives that sprawl a small, auditable shape:
 
 - scan local `SKILL.md` folders;
-- propose task-focused skill packs;
-- write a plan before changing anything important;
+- propose focused packs such as docs, browser, data, deploy, or tool-specific
+  groups;
+- write a dry-run plan before managed writes;
 - copy selected skills into a managed vault;
-- generate short active pointer skills such as `sos-<pack>`;
-- keep manifests, registry state, fingerprints, and backups;
-- restore or inspect state when you need to unwind.
+- generate short active skills such as `sos-haruhi` and `sos-<pack>`;
+- keep manifests, registry state, fingerprints, backups, and restore paths;
+- recommend workspace-level packs through `sos-nagato` when one workspace needs
+  a different setup from another.
 
-The goal is not to make skills fancy. The goal is to make them usable again.
-
-## The Short Version
-
-SOS has two layers:
-
-- a **Codex skill wrapper** in `.agents/skills/sos/`, designed for guided,
-  no-global-install workflows;
-- a **Python CLI backend** in `src/sos/`, which performs deterministic scanning,
-  planning, applying, syncing, backup, and restore behavior.
-
-The skill helps the agent decide what to do next. The CLI does the file work.
-That split matters: prompts can guide, but writes should stay deterministic.
-
-## Start Without A Global Install
-
-The recommended first path is to use the bundled `sos` skill from this
-repository. You can clone the repo, open it in Codex, and ask Codex to use the
-SOS skill to inspect or organize your local skills.
-
-```bash
-git clone https://github.com/Rainnystone/skill-orchestration-system.git
-cd skill-orchestration-system
-```
-
-Then ask Codex something like:
-
-```text
-Use the sos skill to inspect my local skills and suggest a safe plan.
-```
-
-The skill will start by checking what can run locally. You can also run the
-doctor directly:
-
-```bash
-python .agents/skills/sos/scripts/sos_doctor.py --no-path-lookup
-```
-
-If the source checkout is available, SOS can run in repo-local mode without
-installing a global `sos` command.
-
-**macOS / Linux:**
-
-```bash
-PYTHONPATH=src python -m sos --version
-```
-
-**Windows PowerShell:**
-
-```powershell
-$env:PYTHONPATH = "src"
-python -m sos --version
-```
-
-Expected output:
-
-```text
-sos 0.1.0
-```
-
-## Install For Development
-
-If you want a normal editable Python install for development, use Python 3.11 or
-newer.
-
-**macOS / Linux:**
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e ".[dev]"
-python -m sos --version
-```
-
-**Windows PowerShell:**
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
-python -m sos --version
-```
-
-After installation, the console script is also available:
-
-```bash
-sos --version
-```
+The point is not to make your skill system mysterious. The point is to keep the
+mystery where it belongs: in what you are building, not in which folder contains
+the correct `SKILL.md`.
 
 ## How To Use SOS
 
-There are two ways to use SOS.
+There are three practical paths: use the bundled Codex skill, use the CLI
+directly, or use workspace recommendation when a specific project needs a
+temporary skill set.
 
 ### Codex Skill Path
 
-This is the intended first-run path. Keep this repository available in a Codex
-workspace, then ask Codex to use the bundled `sos` skill. You do not need to
-memorize the command sequence.
+This is the intended first path. Open this repository in Codex and ask Codex to
+use the bundled `sos` skill.
 
 Useful prompts:
 
@@ -143,62 +64,58 @@ Use the sos skill to show what is inside my current packs.
 Use the sos skill to check what changed after I installed new skills.
 ```
 
-When the skill activates, Codex reads `.agents/skills/sos/SKILL.md`, runs or
-inspects `sos_doctor.py`, chooses repo-local mode or installed-CLI mode, asks
-for missing paths, and then uses dry-run-first SOS commands.
+The skill checks whether SOS can run from the current checkout or from an
+installed CLI, asks for missing paths, then uses dry-run-first commands. The
+skill guides the conversation; deterministic Python code performs the file work.
 
 ### CLI Path
 
-The CLI is what the skill calls when it needs deterministic file work. If SOS is
-installed, the command shape is:
+The CLI is the backend the skill calls. If SOS is installed, commands look like
+this:
 
 ```bash
 sos scan --root SKILLS_ROOT --codex-config CODEX_CONFIG
+sos propose --root SKILLS_ROOT
+sos plan --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --codex-config CODEX_CONFIG --out PLAN_PATH
+sos apply --plan PLAN_PATH
+sos apply --plan PLAN_PATH --apply
 ```
 
-Without a global install, use the same command through the source checkout:
+The safe rhythm is always the same:
 
-**macOS / Linux:**
+1. `scan` and `propose` inspect.
+2. `plan` writes only a plan file.
+3. `apply` without `--apply` previews.
+4. `apply --apply` writes managed files after you review the plan.
 
-```bash
-PYTHONPATH=src python -m sos scan --root SKILLS_ROOT --codex-config CODEX_CONFIG
-```
+### Use Generated Pack Skills
 
-**Windows PowerShell:**
+After a plan is applied, SOS writes short active skills into the selected skills
+root:
 
-```powershell
-$env:PYTHONPATH = "src"
-python -m sos scan --root SKILLS_ROOT --codex-config CODEX_CONFIG
-```
+- `sos-haruhi` for SOS status, pack management, backups, restores, and changes;
+- `sos-<pack>` for each generated pack, such as `sos-docs` or `sos-browser`.
 
-So yes, the old shape is still there: the product command family is `sos ...`.
-`python -m sos ...` is just the no-global-install way to run that same backend
-from the repo.
-
-### After You Apply A Plan
-
-SOS writes active pointer skills into the skills root you selected:
-
-- `sos-haruhi` manages SOS status, backups, restores, and pack operations;
-- `sos-<pack>` points to one generated skill pack, for example `sos-writing` if
-  the pack id is `writing`.
-
-Then you use those generated skills like normal Codex skills:
+Use them like normal Codex skills:
 
 ```text
 Use sos-haruhi to show my SOS status.
-Use sos-writing for this documentation task.
+Use sos-docs for this documentation task.
+Use sos-browser to inspect this local web flow.
 ```
 
-A pack pointer runs
-`sos pack activate PACK_ID --runtime-root RUNTIME_ROOT --sync=clean-auto` before
-reading the managed vault copy. That is how SOS keeps the active skill layer
-small while still preserving the full skill content in the vault.
+Pack pointers do not paste the entire original skill body into the active layer.
+They point the agent to the pack manifest and managed vault copy. If you name a
+specific packed skill, SOS matches it against manifest `skills.name`; otherwise
+the pointer chooses from manifest metadata and asks when the choice is unclear.
+Before reading the vault copy, a pack pointer uses
+`pack activate PACK_ID --runtime-root RUNTIME_ROOT --sync=clean-auto` so the
+managed copy can stay current.
 
-### Seeing What Is Inside A Pack
+### Inspect Existing Packs
 
-Once packs exist, you do not have to guess what an agent will see. Ask the
-`sos` skill, or run the read-only CLI commands directly:
+When you want to know what is inside the club room before someone starts issuing
+orders:
 
 ```bash
 sos pack list --runtime-root RUNTIME_ROOT
@@ -206,150 +123,206 @@ sos pack show PACK_ID --runtime-root RUNTIME_ROOT
 sos pack show PACK_ID --runtime-root RUNTIME_ROOT --skill SKILL_NAME
 ```
 
-`pack list` answers "what packs do I have?" `pack show` answers "what skills
-are inside this pack?" If you name a skill, SOS filters the manifest to that
-exact skill name so the agent can read one vault skill instead of browsing the
-whole pack up front.
+These commands are read-only. They answer what packs exist, which skills are in
+each pack, and where the managed vault copies live.
 
-### After You Install Or Edit Skills
+### Check Drift After Installing Or Editing Skills
 
-When your local skill library changes, use `changes` before creating a new plan:
+If your local skill library changes, run:
 
 ```bash
 sos changes --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --codex-config CODEX_CONFIG
 ```
 
-This is also read-only. It reports new unmanaged skills, missing or changed
-managed sources, vault drift, missing or stale generated pointers, and managed
-source skills that were unexpectedly re-enabled. It does not apply repairs; it
-only tells you what deserves a new scan, proposal, or reviewed plan.
+It reports new unmanaged skills, missing or changed managed sources, vault
+drift, stale pointers, and managed source skills that were unexpectedly enabled.
+It does not repair anything by itself. It just points at the problem and waits,
+which is more restraint than some fictional club presidents might show.
 
-### Workspace Recommendation Path
+### Use Workspace Recommendations
 
-SOS also has a workspace-level recommendation flow for "what should this
-workspace enable right now?" without turning that choice into a global skill
-change.
+Some workspaces need their own active skills without changing your global skill
+setup. That is where the Haruhi-themed pair comes in.
 
-- `sos-nagato` is the workspace recommender. It inspects the current workspace,
-  reads the local learned reference when it exists, and suggests relevant
-  managed packs.
-- `sos-asahina` is not an automatic recommender. Use it only when you want to
-  explicitly organize approved recommendation outcomes into a learned reference.
+- `sos-nagato` recommends workspace-level packs. It inspects lightweight
+  workspace signals, reads the local learned reference if one exists, and
+  suggests relevant managed packs.
+- `sos-asahina` is explicit. Use it when you want to turn approved local
+  recommendation history into a learned reference for future `sos-nagato`
+  recommendations. It is not a hook and it does not run in the background.
 
-The flow stays local and reviewable:
+Typical flow:
 
-1. Inspect the workspace without writing anything:
+```bash
+sos recommend context --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT
+sos recommend activation-plan --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --packs docs,browser --out WORKSPACE_PLAN
+sos recommend activate --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT
+sos recommend activate --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --apply
+```
 
-   ```bash
-   sos recommend context --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT
-   ```
+After successful workspace activation, SOS writes workspace-only skills under:
 
-2. Write a reviewable workspace activation plan:
+```text
+WORKSPACE_ROOT/.agents/skills/
+```
 
-   ```bash
-   sos recommend activation-plan --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --packs docs,browser --out WORKSPACE_PLAN
-   ```
-
-3. Preview the plan:
-
-   ```bash
-   sos recommend activate --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT
-   ```
-
-4. Apply only after review:
-
-   ```bash
-   sos recommend activate --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --apply
-   ```
-
-When applied, SOS writes workspace-only skills into
-`WORKSPACE_ROOT/.agents/skills/`:
+That includes:
 
 - `sos-nagato/SKILL.md`
 - `sos-asahina/SKILL.md`
 - one `sos-<pack>/SKILL.md` pointer for each selected pack
 
-Recommendation state is stored under
-`RUNTIME_ROOT/state/recommendations/`:
-
-- `selection-events.jsonl` stores accepted selection records
-- `asahina-reference.md` stores the learned reference used by `sos-nagato`
-
-This recommendation flow does not write global skills, does not use hooks, and
-does not store raw prompts, file contents, model messages, account identifiers,
-or broad private absolute paths. The stored workspace identifier is a hash, so
-review logs remain auditable without exposing the original workspace path.
-Recommendation command output uses placeholders such as `WORKSPACE_ROOT`,
-`RUNTIME_ROOT`, and `WORKSPACE_PLAN` instead of printing local absolute paths.
-Durable scenario labels are tag-derived display labels, not free-form prompt
-logs.
-
-## A Safe First Workflow
-
-The exact paths depend on your machine. In the examples below, replace:
-
-- `SKILLS_ROOT` with your active Codex skills directory;
-- `RUNTIME_ROOT` with the SOS runtime directory you want to use;
-- `CODEX_CONFIG` with your Codex config path;
-- `PLAN_PATH` with the plan file path you want SOS to write.
-
-Inspect first:
+If the user accepts the recommendation, record that local fact:
 
 ```bash
-sos scan --root SKILLS_ROOT --codex-config CODEX_CONFIG
-sos propose --root SKILLS_ROOT
+sos recommend record-selection --runtime-root RUNTIME_ROOT --workspace-root WORKSPACE_ROOT --scenario-label docs --scenario-tags docs --packs docs --skills documents --manifest-fingerprint sha256:example
 ```
 
-Create a reviewable plan:
+When you explicitly want to refresh the learned reference:
 
 ```bash
-sos plan --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --codex-config CODEX_CONFIG --out PLAN_PATH
+sos recommend learn --runtime-root RUNTIME_ROOT
+sos recommend learn --runtime-root RUNTIME_ROOT --apply
 ```
 
-Dry-run the plan:
+`learn` validates historical records against the current runtime manifests
+before using them. Stale local records or hand-edited JSONL that no longer match
+real packs and skills are skipped.
+
+## How To Install SOS
+
+### Try It Without A Global Install
+
+Clone the repository:
 
 ```bash
-sos apply --plan PLAN_PATH
+git clone https://github.com/Rainnystone/skill-orchestration-system.git
+cd skill-orchestration-system
 ```
 
-Only after reviewing the plan:
+Then ask Codex:
+
+```text
+Use the sos skill to inspect my local skills and suggest a safe plan.
+```
+
+You can also run the doctor directly:
 
 ```bash
-sos apply --plan PLAN_PATH --apply
+python .agents/skills/sos/scripts/sos_doctor.py --no-path-lookup
 ```
 
-## Safety Model
+Run the source-tree CLI smoke check:
+
+**macOS / Linux**
+
+```bash
+PYTHONPATH=src python -m sos --version
+```
+
+**Windows PowerShell**
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m sos --version
+```
+
+Expected output:
+
+```text
+sos 0.1.0
+```
+
+### Install For Development
+
+Use Python 3.11 or newer.
+
+**macOS / Linux**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+python -m sos --version
+```
+
+**Windows PowerShell**
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+python -m sos --version
+```
+
+After installation, the console script is available:
+
+```bash
+sos --version
+```
+
+## Technical Reference
+
+### Safety Model
 
 SOS is intentionally conservative.
 
-- `scan` and `propose` do not write.
+- `scan`, `propose`, `pack list`, `pack show`, `changes`, `status`, and most
+  preview commands do not write.
 - `plan` writes only the explicit plan file.
 - `apply` without `--apply` is a dry run.
 - `apply --apply` creates backups before managed writes.
 - source skill deletion is off by default and requires `--delete-source`,
-  `--apply`, and `--confirm-delete-source <pack-id>`;
+  `--apply`, and `--confirm-delete-source <pack-id>`.
 - restore and backup cleanup are dry-run by default unless `--apply` is used.
+- workspace recommendation activation requires an explicit `--workspace-root`
+  anchor, so a tampered plan cannot silently redirect workspace skill writes.
 
-Review the plan before running anything that writes. If in doubt, run the dry
-run again.
+### What SOS Creates
 
-## What SOS Creates
+An approved global plan writes generated active skills into the skill root you
+choose. A workspace recommendation plan writes generated skills only into that
+workspace's `.agents/skills/` directory.
 
-When an approved plan is applied, SOS writes generated active skills into the
-skill root you chose. The generated entry points are intentionally short:
+The generated entry points are intentionally short:
 
-- `sos-haruhi`: a companion skill for pack management, status, backup, and
-  restore workflows;
-- `sos-<pack>`: one pointer skill per pack.
+- `sos-haruhi`: companion skill for pack management and SOS operations;
+- `sos-nagato`: workspace recommender;
+- `sos-asahina`: explicit learned-reference helper;
+- `sos-<pack>`: one pointer skill per selected pack.
 
-Pointer skills do not embed the full original skill body. They point the agent
-to the pack manifest and the managed vault copy. When the user names a packed
-skill, the pointer matches that name against manifest `skills.name`; otherwise
-it chooses from manifest `skills.name` and `skills.description`, and asks when
-the choice is ambiguous. That keeps the active layer small and keeps detailed
-skill content where it belongs.
+Pointer skills do not embed full source skill bodies. They route the agent to
+manifests and vault copies so the active skill surface stays small.
 
-## How It Works
+### Runtime Layout
+
+```text
+<runtime-root>/
+  backups/
+  packs/
+  state/
+  vault/
+```
+
+- `vault/` stores managed skill copies.
+- `packs/` stores TOML pack manifests.
+- `state/` stores registry and recommendation state.
+- `backups/` stores config and vault snapshots created before writes.
+
+Workspace recommendation state lives under:
+
+```text
+<runtime-root>/state/recommendations/
+  selection-events.jsonl
+  asahina-reference.md
+```
+
+Records stay local. SOS stores compact scenario tags, selected pack ids,
+selected skill names, a manifest fingerprint, and a hashed workspace id. It does
+not store raw prompts, file contents, model messages, account identifiers, or
+broad private absolute paths.
+
+### Project Layout
 
 ```text
 .
@@ -363,40 +336,19 @@ skill content where it belongs.
 |   |-- changes.py          # Read-only runtime and skill drift reporting
 |   |-- planner.py          # Reviewable write-plan generation
 |   |-- apply.py            # Plan execution and rollback-aware writes
-|   |-- sync.py             # Pack activation and clean sync behavior
-|   |-- backups.py          # Backup, restore, and retention helpers
-|   `-- templates/          # Packaged pointer skill templates
+|   |-- workspace_activation.py
+|   |-- recommendation_engine.py
+|   |-- recommendation_store.py
+|   `-- templates/          # Packaged generated-skill templates
 |-- templates/              # Source copies of generated-skill templates
 |-- tests/                  # Unit tests and CLI smoke tests
-|-- README.md               # English README
-|-- README_CN.md            # Chinese README
-|-- pyproject.toml          # Python package metadata
+|-- README.md
+|-- README_CN.md
+|-- pyproject.toml
 `-- LICENSE
 ```
 
-A typical SOS runtime root looks like this:
-
-```text
-<runtime-root>/
-  backups/
-  packs/
-  state/
-  vault/
-```
-
-- `vault/` stores managed skill copies.
-- `packs/` stores TOML pack manifests, including each managed skill's
-  `name`, `description`, source path, vault path, and sync fingerprints.
-- `state/` stores registry state.
-- `backups/` stores config and vault snapshots created before writes.
-
-Pack proposals are deterministic. SOS first looks at Agent Skill head metadata,
-especially `name` and `description`, and prefers clear source/tool families such
-as Apify or Obsidian before functional groups such as Docs, Browser, Deploy, or
-Data. Ambiguous skills are left for human review instead of being packed by a
-hidden classifier.
-
-## CLI Reference
+### CLI Reference
 
 | Command | Purpose | Writes by default |
 | --- | --- | --- |
@@ -406,11 +358,18 @@ hidden classifier.
 | `sos apply --plan <path>` | Summarize a plan. | No |
 | `sos apply --plan <path> --apply` | Copy skills, write manifests and pointers, disable originals, and create backups. | Yes |
 | `sos pack activate <pack> --runtime-root <path>` | Activate a pack and apply eligible clean syncs. | Sometimes |
-| `sos pack list --runtime-root <path>` | List written runtime packs. | No |
+| `sos pack list --runtime-root <path>` | List runtime packs. | No |
 | `sos pack show <pack> --runtime-root <path>` | Show one pack manifest and its managed skills. | No |
 | `sos pack sync <pack> --runtime-root <path>` | Show a pack sync plan. | No |
 | `sos pack sync <pack> --runtime-root <path> --apply` | Apply a valid pack sync plan. | Yes |
 | `sos changes --root <path> --runtime-root <path> --codex-config <path>` | Report new, missing, changed, stale, or unexpectedly enabled skills and pointers. | No |
+| `sos recommend context --workspace-root <path> --runtime-root <path>` | Inspect workspace recommendation context. | No |
+| `sos recommend activation-plan --workspace-root <path> --runtime-root <path> --packs <ids> --out <path>` | Write a workspace activation plan. | Only the plan file |
+| `sos recommend activate --plan <path> --workspace-root <path> --runtime-root <path>` | Preview workspace activation. | No |
+| `sos recommend activate --plan <path> --workspace-root <path> --runtime-root <path> --apply` | Write workspace skills and the learned-reference stub. | Yes |
+| `sos recommend record-selection --runtime-root <path> --workspace-root <path> ...` | Record one accepted workspace recommendation selection. | Yes |
+| `sos recommend learn --runtime-root <path>` | Preview the learned reference. | No |
+| `sos recommend learn --runtime-root <path> --apply` | Write the learned reference. | Yes |
 | `sos status --runtime-root <path>` | Show runtime registry and backup state. | No |
 | `sos backup list --runtime-root <path>` | List backups. | No |
 | `sos backup clean --runtime-root <path> --keep <count>` | Preview backup pruning. | No |
@@ -418,7 +377,7 @@ hidden classifier.
 | `sos restore <backup-id> --runtime-root <path>` | Preview restore targets. | No |
 | `sos restore <backup-id> --runtime-root <path> --apply` | Restore recorded config and vault targets. | Yes |
 
-## Compatibility
+### Compatibility
 
 SOS is Codex-first. Its tested write path can update Codex skill configuration
 after creating backups and only when `--apply` is used.
@@ -428,7 +387,7 @@ Claude Code compatibility is structural for now: generated skills are ordinary
 does not yet provide a Claude Code installer, settings writer, or integration
 test suite.
 
-## Development
+### Development
 
 Run tests:
 
@@ -449,12 +408,12 @@ $env:PYTHONPATH = "src"
 python -m sos --version
 ```
 
-## Project Status
+### Project Status
 
 SOS is early software. The implemented behavior is covered by tests, but the
 public API and pack proposal model may evolve before a stable release.
 
-## Security And Privacy
+### Security And Privacy
 
 Do not commit real local config files, private skill libraries, backups, runtime
 vault contents, account data, or tokens. When sharing bug reports, replace local
