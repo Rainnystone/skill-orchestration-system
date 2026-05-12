@@ -57,11 +57,15 @@ def render_nagato_skill(
     runtime_root: str | Path,
     workspace_root: str | Path,
 ) -> None:
+    runtime_root_path = Path(runtime_root)
     text = _render_template(
         "nagato-skill.md.tmpl",
         {
-            "runtime_root": str(runtime_root),
+            "runtime_root": str(runtime_root_path),
             "workspace_root": str(workspace_root),
+            "learned_reference_path": str(
+                runtime_root_path / "state" / "recommendations" / "asahina-reference.md"
+            ),
         },
     )
     atomic_write_text(_skill_file_path(target, "sos-nagato"), text)

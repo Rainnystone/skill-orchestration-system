@@ -30,6 +30,7 @@ def test_render_nagato_skill_mentions_context_reference_and_hooks(tmp_path: Path
     runtime_root = tmp_path / ".sos"
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
+    learned_reference = runtime_root / "state" / "recommendations" / "asahina-reference.md"
 
     renderer(target, runtime_root=runtime_root, workspace_root=workspace_root)
 
@@ -41,7 +42,8 @@ def test_render_nagato_skill_mentions_context_reference_and_hooks(tmp_path: Path
     assert "sos recommend context" in frontmatter["description"]
     assert "disable-model-invocation" not in frontmatter
     assert "sos recommend context" in rendered
-    assert "asahina-reference.md" in rendered
+    assert str(learned_reference) in rendered
+    assert "Read the learned reference path" in rendered
     assert "workspace-only" in rendered
     assert "Do not use hooks" in rendered
     assert len(rendered.splitlines()) < 90
