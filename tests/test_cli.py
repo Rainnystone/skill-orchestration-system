@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 
 import pytest
@@ -418,6 +419,52 @@ def test_recommend_activation_plan_and_activate_apply(capsys, tmp_path: Path):
     assert (workspace_skills / "sos-docs" / "SKILL.md").is_file()
 
 
+def test_recommend_activate_without_apply_is_dry_run(capsys, tmp_path: Path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "README.md").write_text("# Docs workspace\n", encoding="utf-8")
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    plan_path = tmp_path / "workspace-activation-plan.toml"
+    plan_exit = main(
+        [
+            "recommend",
+            "activation-plan",
+            "--workspace-root",
+            str(workspace_root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--packs",
+            "docs",
+            "--out",
+            str(plan_path),
+        ]
+    )
+    assert plan_exit == 0
+    capsys.readouterr()
+
+    activate_exit = main(
+        [
+            "recommend",
+            "activate",
+            "--plan",
+            str(plan_path),
+            "--runtime-root",
+            str(runtime_paths.root),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert activate_exit == 0
+    assert "dry-run workspace activation; no external files written" in captured.out
+    assert not (workspace_root / ".agents").exists()
+    assert not learned_reference_path(runtime_paths).exists()
+
+
 def test_recommend_record_selection_and_learn(capsys, tmp_path: Path):
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
@@ -465,9 +512,70 @@ def test_recommend_record_selection_and_learn(capsys, tmp_path: Path):
     captured = capsys.readouterr()
     assert learn_exit == 0
     learned_path = learned_reference_path(runtime_paths)
+    events_path = selection_events_path(runtime_paths)
+    raw_events = events_path.read_text(encoding="utf-8")
+    event_payload = json.loads(raw_events.splitlines()[0])
     assert learned_path.exists()
     assert "Evidence: 10 accepted selections" in learned_path.read_text(encoding="utf-8")
     assert f"learned reference: applied {learned_path}" in captured.out
+    assert str(workspace_root) not in raw_events
+    assert event_payload["workspace_id"].startswith("sha256:")
+    assert str(workspace_root) not in captured.out
+
+
+def test_recommend_record_selection_rejects_empty_packs_and_skills(tmp_path: Path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+
+    with pytest.raises(ValueError, match="--packs must include at least one value"):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                "docs workflow",
+                "--scenario-tags",
+                "docs",
+                "--packs",
+                ",",
+                "--skills",
+                "documents",
+                "--manifest-fingerprint",
+                "sha256:docs",
+            ]
+        )
+
+    with pytest.raises(ValueError, match="--skills must include at least one value"):
+        main(
+            [
+                "recommend",
+                "record-selection",
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--scenario-label",
+                "docs workflow",
+                "--scenario-tags",
+                "docs",
+                "--packs",
+                "docs",
+                "--skills",
+                ",",
+                "--manifest-fingerprint",
+                "sha256:docs",
+            ]
+        )
 
 
 def test_recommend_learn_preview_does_not_write_reference(capsys, tmp_path: Path):

@@ -501,14 +501,20 @@ def _handle_recommend_activate(args: argparse.Namespace) -> int:
 
 def _handle_recommend_record_selection(args: argparse.Namespace) -> int:
     runtime_paths = RuntimePaths.from_root(args.runtime_root)
+    selected_pack_ids = _csv_tuple(args.packs)
+    if not selected_pack_ids:
+        raise ValueError("--packs must include at least one value")
+    selected_skill_names = _csv_tuple(args.skills)
+    if not selected_skill_names:
+        raise ValueError("--skills must include at least one value")
     event = SelectionEvent(
         schema_version=1,
         created_at=_utc_now_isoformat(),
         workspace_id=workspace_id_for_path(args.workspace_root),
         scenario_label=args.scenario_label,
         scenario_tags=_csv_tuple(args.scenario_tags),
-        selected_pack_ids=_csv_tuple(args.packs),
-        selected_skill_names=_csv_tuple(args.skills),
+        selected_pack_ids=selected_pack_ids,
+        selected_skill_names=selected_skill_names,
         manifest_fingerprint=args.manifest_fingerprint,
         selection_source="user_accepted",
         outcome="activated",
