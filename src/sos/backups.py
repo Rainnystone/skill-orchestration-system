@@ -511,15 +511,9 @@ def _read_backup_record(metadata_path: Path) -> BackupRecord:
 
 
 def _validate_metadata_backup_id(backup_id: str, metadata_path: Path) -> None:
+    safe_backup_id = safe_component(backup_id, "backup_id")
     backup_dir_name = metadata_path.parent.name
-    if (
-        not backup_id
-        or backup_id in {".", ".."}
-        or Path(backup_id).is_absolute()
-        or "/" in backup_id
-        or "\\" in backup_id
-        or backup_id != backup_dir_name
-    ):
+    if safe_backup_id != backup_dir_name:
         raise ValueError(
             f"Backup metadata backup_id must be one safe path component matching {backup_dir_name!r}: "
             f"{backup_id!r}"
@@ -551,15 +545,7 @@ def _find_backup(runtime_paths: RuntimePaths, backup_id: str) -> BackupRecord:
 
 
 def _validate_backup_id_component(backup_id: str) -> None:
-    if (
-        not backup_id
-        or backup_id in {".", ".."}
-        or Path(backup_id).is_absolute()
-        or "/" in backup_id
-        or "\\" in backup_id
-        or Path(backup_id).name != backup_id
-    ):
-        raise ValueError(f"unsafe backup_id: {backup_id}")
+    safe_component(backup_id, "backup_id")
 
 
 def _replace_file_atomic(source: Path, target: Path) -> None:

@@ -267,6 +267,36 @@ def test_validate_backup_id_component_rejects_backslash():
         _validate_backup_id_component("..\\outside")
 
 
+@pytest.mark.parametrize(
+    "backup_id",
+    ("a:b", "CON.txt", "LPT1.md", "NUL.skill", "x.", "x "),
+)
+def test_validate_backup_id_component_rejects_windows_unsafe_names(backup_id: str):
+    with pytest.raises(ValueError, match="unsafe backup_id"):
+        backups._validate_backup_id_component(backup_id)
+
+
+def test_restore_backup_rejects_windows_unsafe_backup_id_before_lookup(tmp_path: Path):
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+
+    with pytest.raises(ValueError, match="unsafe backup_id"):
+        restore_backup(
+            runtime_paths,
+            "CON.txt",
+            codex_config_path=None,
+            vault_root=None,
+            apply=False,
+        )
+
+
+def test_validate_metadata_backup_id_rejects_windows_unsafe_name_without_filesystem_path():
+    with pytest.raises(ValueError, match="unsafe backup_id"):
+        backups._validate_metadata_backup_id(
+            "CON.txt",
+            Path("CON.txt") / "metadata.toml",
+        )
+
+
 def test_restore_claude_pack_moves_archive_back(tmp_path):
     """End-to-end: apply Claude plan, then restore moves archive contents back to source."""
     from sos.apply import apply_write_plan
