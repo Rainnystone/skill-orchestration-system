@@ -195,9 +195,15 @@ def restore_backup(
                 if vault_root is None:
                     raise ValueError("vault_root is required for vault restore")
                 _replace_directory_atomic(record.vault_path, Path(vault_root))
-        except Exception:
+        except Exception as restore_error:
             if archive_restored:
-                _rollback_restored_archive_moves(archive_moves)
+                try:
+                    _rollback_restored_archive_moves(archive_moves)
+                except Exception as rollback_error:
+                    raise RuntimeError(
+                        f"Restore failed ({restore_error}); "
+                        f"rollback also failed ({rollback_error})"
+                    ) from restore_error
             raise
         return record
 

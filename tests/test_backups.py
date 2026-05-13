@@ -630,3 +630,43 @@ def test_restore_claude_rejects_when_target_already_exists(tmp_path: Path):
     assert (source_path / "SKILL.md").read_text(
         encoding="utf-8"
     ) == "---\nname: demo-skill\ndescription: recreated\n---\n"
+
+
+def test_restore_claude_rollback_double_failure_shows_combined_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # Pre-create vault directory so the backup captures a vault snapshot
+    vault_dir = tmp_path / "runtime" / "vault"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    (vault_dir / "SKILL.md").write_text("# vault\n", encoding="utf-8")
+
+    runtime_paths, skill_root, codex_config_path, backup_id, _ = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+
+    def fail_vault_restore(source: Path, target: Path) -> None:
+        raise RuntimeError("vault restore failed")
+
+    def fail_rollback(moves: tuple[tuple[Path, Path], ...]) -> None:
+        raise RuntimeError("rollback failed")
+
+    monkeypatch.setattr(backups, "_replace_directory_atomic", fail_vault_restore)
+    monkeypatch.setattr(
+        backups, "_rollback_restored_archive_moves", fail_rollback
+    )
+
+    with pytest.raises(RuntimeError) as exc_info:
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )
+
+    msg = str(exc_info.value)
+    assert "vault restore failed" in msg
+    assert "rollback failed" in msg
