@@ -186,6 +186,7 @@ def restore_backup(
 
     if host == "claude":
         archive_moves = _planned_archive_restore_for_backup(record, runtime_paths)
+        _reject_conflicting_restore_targets(archive_moves)
         archive_restored = False
         try:
             _restore_archive_moves(archive_moves)
@@ -413,6 +414,17 @@ def _required_metadata_path(value: Any, label: str) -> Path:
     if not isinstance(value, str) or not value:
         raise ValueError(f"archive restore entry {label} must be a path string")
     return Path(value)
+
+
+def _reject_conflicting_restore_targets(
+    moves: tuple[tuple[Path, Path], ...],
+) -> None:
+    conflicting = sorted(str(t) for _, t in moves if t.exists())
+    if conflicting:
+        raise ValueError(
+            f"cannot restore: {len(conflicting)} target(s) already exist: "
+            + "; ".join(conflicting)
+        )
 
 
 def _restore_archive_moves(moves: tuple[tuple[Path, Path], ...]) -> None:

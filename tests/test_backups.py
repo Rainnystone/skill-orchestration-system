@@ -600,3 +600,33 @@ def test_restore_claude_rejects_metadata_source_path_that_does_not_match_expecte
             runtime_paths.vault,
             apply=True,
         )
+
+
+def test_restore_claude_rejects_when_target_already_exists(tmp_path: Path):
+    runtime_paths, skill_root, codex_config_path, backup_id, _ = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+    source_path = skill_root / "demo-skill"
+    # Recreate the skill directory that was moved to archive
+    source_path.mkdir(parents=True, exist_ok=True)
+    (source_path / "SKILL.md").write_text(
+        "---\nname: demo-skill\ndescription: recreated\n---\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="already exist"):
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )
+
+    # The recreated directory must NOT be destroyed by the preflight
+    assert source_path.is_dir()
+    assert (source_path / "SKILL.md").read_text(
+        encoding="utf-8"
+    ) == "---\nname: demo-skill\ndescription: recreated\n---\n"
