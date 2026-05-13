@@ -774,9 +774,15 @@ def test_restore_rejects_broken_symlink_at_target(tmp_path: Path):
     )
     source_path = skill_root / "demo-skill"
     # After apply, source_path is moved to archive; create a broken symlink there
+    assert not source_path.exists()
+    assert not source_path.is_symlink()
     try:
         source_path.symlink_to("/nonexistent")
+    except FileExistsError:
+        raise
     except (OSError, NotImplementedError):
+        if source_path.exists() or source_path.is_symlink():
+            raise
         pytest.skip("symlink creation unavailable")
     assert source_path.is_symlink()
     assert not source_path.exists()
