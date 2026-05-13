@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from sos._archive import ARCHIVE_DIR_NAME
 from sos.path_safety import cross_platform_path_key, safe_component
 from datetime import UTC, datetime
 from pathlib import Path
@@ -348,6 +349,13 @@ def _planned_archive_restore(
     return tuple(moves)
 
 
+def _validate_metadata_active_skill_root(record: BackupRecord) -> Path:
+    value = record.metadata.get("active_skill_root")
+    if not isinstance(value, str) or not value:
+        raise ValueError("metadata missing active_skill_root; cannot validate restore paths")
+    return Path(value)
+
+
 def _planned_archive_restore_for_backup(
     record: BackupRecord,
     runtime_paths: RuntimePaths,
@@ -358,6 +366,8 @@ def _planned_archive_restore_for_backup(
     if not isinstance(entries, list):
         raise ValueError("archive_restore_entries must be a list")
 
+    active_skill_root = _validate_metadata_active_skill_root(record)
+
     moves: list[tuple[Path, Path]] = []
     target_keys: set[str] = set()
     for entry in entries:
@@ -367,6 +377,17 @@ def _planned_archive_restore_for_backup(
         skill_name = _safe_metadata_component(entry.get("skill_name"), "skill_name")
         archive_path = _required_metadata_path(entry.get("archive_path"), "archive_path")
         source_path = _required_metadata_path(entry.get("source_path"), "source_path")
+        # Validate paths resolve to expected locations
+        expected_source = active_skill_root / skill_name
+        expected_archive = active_skill_root / ARCHIVE_DIR_NAME / pack_id / skill_name
+        if source_path.resolve(strict=False) != expected_source.resolve(strict=False):
+            raise ValueError(
+                f"metadata source_path {source_path} does not match expected {expected_source}"
+            )
+        if archive_path.resolve(strict=False) != expected_archive.resolve(strict=False):
+            raise ValueError(
+                f"metadata archive_path {archive_path} does not match expected {expected_archive}"
+            )
         target_key = cross_platform_path_key(source_path)
         if target_key in target_keys:
             raise ValueError("archive restore target collision")

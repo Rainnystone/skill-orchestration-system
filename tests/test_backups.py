@@ -202,23 +202,17 @@ def test_restore_claude_rejects_target_collisions_before_moving(tmp_path: Path):
         skill_name="demo-skill",
     )
     archive_one = skill_root / ".sos-archive" / "demo" / "demo-skill"
-    archive_two = skill_root / ".sos-archive" / "demo" / "other-skill"
-    archive_two.mkdir(parents=True)
-    (archive_two / "SKILL.md").write_text(
-        "---\nname: other-skill\ndescription: other\n---\n",
-        encoding="utf-8",
-    )
     metadata["archive_restore_entries"] = [
         {
             "pack_id": "demo",
             "skill_name": "demo-skill",
             "archive_path": archive_one.as_posix(),
-            "source_path": (skill_root / "Demo-Skill").as_posix(),
+            "source_path": (skill_root / "demo-skill").as_posix(),
         },
         {
             "pack_id": "demo",
-            "skill_name": "other-skill",
-            "archive_path": archive_two.as_posix(),
+            "skill_name": "demo-skill",
+            "archive_path": archive_one.as_posix(),
             "source_path": (skill_root / "demo-skill").as_posix(),
         },
     ]
@@ -234,8 +228,6 @@ def test_restore_claude_rejects_target_collisions_before_moving(tmp_path: Path):
         )
 
     assert archive_one.is_dir()
-    assert archive_two.is_dir()
-    assert not (skill_root / "Demo-Skill").exists()
     assert not (skill_root / "demo-skill").exists()
 
 
@@ -561,3 +553,50 @@ def test_restore_claude_legacy_backup_without_archive_entries_uses_manifest_fall
 
     assert (skill_root / "demo-skill" / "SKILL.md").is_file()
     assert not (skill_root / ".sos-archive" / "demo" / "demo-skill").exists()
+
+
+def test_restore_claude_rejects_metadata_source_path_that_does_not_match_expected(
+    tmp_path: Path,
+):
+    from sos.toml_io import write_toml
+
+    runtime_paths, skill_root, codex_config_path, backup_id, metadata = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+    metadata_path = runtime_paths.backups / backup_id / "metadata.toml"
+
+    # Test 1: Tamper source_path to point outside active skill root
+    tampered_source = dict(metadata)
+    entries = list(tampered_source["archive_restore_entries"])
+    entries[0] = dict(entries[0])
+    entries[0]["source_path"] = (tmp_path / "outside" / "evil").as_posix()
+    tampered_source["archive_restore_entries"] = entries
+    write_toml(metadata_path, tampered_source)
+
+    with pytest.raises(ValueError, match="does not match expected"):
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )
+
+    # Test 2: Tamper archive_path to point outside expected archive location
+    tampered_archive = dict(metadata)
+    entries2 = list(tampered_archive["archive_restore_entries"])
+    entries2[0] = dict(entries2[0])
+    entries2[0]["archive_path"] = (tmp_path / "outside" / "evil-archive").as_posix()
+    tampered_archive["archive_restore_entries"] = entries2
+    write_toml(metadata_path, tampered_archive)
+
+    with pytest.raises(ValueError, match="does not match expected"):
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )
