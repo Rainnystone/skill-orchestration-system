@@ -709,3 +709,27 @@ def test_legacy_restore_rejects_target_collisions(tmp_path: Path):
             runtime_paths.vault,
             apply=True,
         )
+
+
+def test_restore_rejects_relative_active_skill_root(tmp_path: Path):
+    """Tampered metadata with a relative active_skill_root must be rejected."""
+    from sos.toml_io import read_toml, write_toml
+
+    runtime_paths, skill_root, codex_config_path, backup_id, metadata = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+
+    tampered = dict(metadata)
+    tampered["active_skill_root"] = "skills"
+    write_toml(runtime_paths.backups / backup_id / "metadata.toml", tampered)
+
+    with pytest.raises(ValueError, match="must be absolute"):
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )

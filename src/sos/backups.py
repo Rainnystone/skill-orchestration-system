@@ -363,7 +363,10 @@ def _validate_metadata_active_skill_root(record: BackupRecord) -> Path:
     value = record.metadata.get("active_skill_root")
     if not isinstance(value, str) or not value:
         raise ValueError("metadata missing active_skill_root; cannot validate restore paths")
-    return Path(value)
+    path = Path(value)
+    if not path.is_absolute():
+        raise ValueError(f"active_skill_root must be absolute: {value!r}")
+    return path.resolve(strict=False)
 
 
 def _planned_archive_restore_for_backup(
