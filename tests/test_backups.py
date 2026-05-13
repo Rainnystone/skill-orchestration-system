@@ -400,6 +400,43 @@ def test_restore_claude_backup_uses_selected_backup_metadata_not_current_manifes
     assert not (skill_root / "beta-skill").exists()
 
 
+def test_restore_claude_rolls_archive_back_when_vault_restore_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # Pre-create vault directory so the backup captures a vault snapshot
+    vault_dir = tmp_path / "runtime" / "vault"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    (vault_dir / "SKILL.md").write_text("# vault\n", encoding="utf-8")
+
+    runtime_paths, skill_root, codex_config_path, backup_id, _ = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+
+    original_replace_directory_atomic = backups._replace_directory_atomic
+
+    def fail_vault_restore(source: Path, target: Path) -> None:
+        if source == runtime_paths.backups / backup_id / "vault":
+            raise RuntimeError("vault restore failed")
+        original_replace_directory_atomic(source, target)
+
+    monkeypatch.setattr(backups, "_replace_directory_atomic", fail_vault_restore)
+
+    with pytest.raises(RuntimeError, match="vault restore failed"):
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )
+
+    assert not (skill_root / "demo-skill").exists()
+    assert (skill_root / ".sos-archive" / "demo" / "demo-skill" / "SKILL.md").is_file()
+
+
 def test_restore_refuses_when_archive_missing(tmp_path):
     """Restore should error if the .sos-archive entry is gone (user manually deleted it)."""
     import shutil

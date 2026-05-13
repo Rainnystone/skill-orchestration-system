@@ -185,11 +185,18 @@ def restore_backup(
 
     if host == "claude":
         archive_moves = _planned_archive_restore_for_backup(record, runtime_paths)
-        _restore_archive_moves(archive_moves)
-        if record.vault_path is not None:
-            if vault_root is None:
-                raise ValueError("vault_root is required for vault restore")
-            _replace_directory_atomic(record.vault_path, Path(vault_root))
+        archive_restored = False
+        try:
+            _restore_archive_moves(archive_moves)
+            archive_restored = True
+            if record.vault_path is not None:
+                if vault_root is None:
+                    raise ValueError("vault_root is required for vault restore")
+                _replace_directory_atomic(record.vault_path, Path(vault_root))
+        except Exception:
+            if archive_restored:
+                _rollback_restored_archive_moves(archive_moves)
+            raise
         return record
 
     config_target = Path(codex_config_path) if codex_config_path is not None else None
@@ -418,6 +425,11 @@ def _restore_archive_moves(moves: tuple[tuple[Path, Path], ...]) -> None:
     except Exception:
         rollback_archive_moves(tuple(journal))
         raise
+
+
+def _rollback_restored_archive_moves(moves: tuple[tuple[Path, Path], ...]) -> None:
+    rollback_moves = tuple((target, source) for source, target in moves)
+    _restore_archive_moves(rollback_moves)
 
 
 def _reserve_backup_id(backups_root: Path, created_at: datetime) -> str:
