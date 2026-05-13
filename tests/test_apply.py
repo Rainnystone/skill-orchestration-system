@@ -740,3 +740,67 @@ def test_apply_rejects_skill_names_colliding_across_manifests(tmp_path: Path):
 
     with pytest.raises(ValueError, match="skill_name collision"):
         apply_module._validated_manifests(plan, runtime_paths, active_root)
+
+
+def test_apply_rejects_pointer_skill_collisions(tmp_path: Path):
+    """When two manifests have pointer_skills that collide by casefold,
+    the apply validator must reject the plan."""
+    from sos.models import WritePlan, WriteOperation, OperationKind
+
+    active_root = tmp_path / "active"
+    sk_a = _write_skill(active_root, "skill-a")
+    sk_b = _write_skill(active_root, "skill-b")
+    runtime_paths = _runtime_paths(tmp_path)
+
+    plan = WritePlan(
+        plan_id="pointer-collision-test",
+        pack_ids=("pack-a", "pack-b"),
+        host="codex",
+        operations=(
+            WriteOperation(
+                OperationKind.WRITE_MANIFEST,
+                target=runtime_paths.packs / "pack-a.toml",
+                metadata={
+                    "manifest": {
+                        "id": "pack-a",
+                        "display_name": "Pack A",
+                        "aliases": [],
+                        "description": "",
+                        "pointer_skill": "sos-pack-a",
+                        "sync_policy": "clean-auto",
+                        "host": "codex",
+                        "skills": [{
+                            "name": "skill-a",
+                            "source_path": str(sk_a),
+                            "vault_path": str(runtime_paths.vault / "pack-a" / "skill-a"),
+                        }],
+                        "triggers": [{"term": "a", "reason": "test"}],
+                    }
+                },
+            ),
+            WriteOperation(
+                OperationKind.WRITE_MANIFEST,
+                target=runtime_paths.packs / "pack-b.toml",
+                metadata={
+                    "manifest": {
+                        "id": "pack-b",
+                        "display_name": "Pack B",
+                        "aliases": [],
+                        "description": "",
+                        "pointer_skill": "sos-PACK-A",
+                        "sync_policy": "clean-auto",
+                        "host": "codex",
+                        "skills": [{
+                            "name": "skill-b",
+                            "source_path": str(sk_b),
+                            "vault_path": str(runtime_paths.vault / "pack-b" / "skill-b"),
+                        }],
+                        "triggers": [{"term": "b", "reason": "test"}],
+                    }
+                },
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="pointer_skill collision"):
+        apply_module._validated_manifests(plan, runtime_paths, active_root)

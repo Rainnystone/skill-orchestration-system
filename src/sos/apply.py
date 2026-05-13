@@ -465,6 +465,16 @@ def _validated_manifests(
             all_skill_names.append(skill.name)
     reject_component_collisions(tuple(all_skill_names), "skill_name")
 
+    pointer_skills = tuple(manifest.pointer_skill for manifest in manifests)
+    reject_component_collisions(pointer_skills, "pointer_skill")
+
+    for manifest in manifests:
+        if manifest.pointer_skill != f"sos-{manifest.id}":
+            raise ValueError(
+                f"pointer_skill {manifest.pointer_skill!r} does not match "
+                f"expected sos-{manifest.id}"
+            )
+
     return manifests
 
 
