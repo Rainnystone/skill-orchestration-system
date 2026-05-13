@@ -2027,6 +2027,62 @@ def test_cli_plan_claude_without_codex_config(tmp_path):
     assert plan.host == "claude"
 
 
+def test_cli_claude_relative_root_persists_absolute_restore_metadata(
+    capsys,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.chdir(tmp_path)
+    _write_skill(Path("skills"), "apify-actor-development")
+
+    plan_exit = main(
+        [
+            "plan",
+            "--host",
+            "claude",
+            "--root",
+            "skills",
+            "--runtime-root",
+            "runtime",
+            "--out",
+            "plan.toml",
+        ]
+    )
+    assert plan_exit == 0
+    capsys.readouterr()
+
+    apply_exit = main(["apply", "--plan", "plan.toml", "--apply"])
+    assert apply_exit == 0
+    apply_output = capsys.readouterr().out
+    backup_id = next(
+        line.removeprefix("backup_id: ")
+        for line in apply_output.splitlines()
+        if line.startswith("backup_id: ")
+    )
+
+    metadata = read_toml(tmp_path / "runtime" / "backups" / backup_id / "metadata.toml")
+    active_skill_root = tmp_path / "skills"
+    assert metadata["active_skill_root"] == active_skill_root.as_posix()
+    assert Path(metadata["active_skill_root"]).is_absolute()
+    entry = metadata["archive_restore_entries"][0]
+    assert entry["source_path"] == (
+        active_skill_root / "apify-actor-development"
+    ).as_posix()
+    assert entry["archive_path"] == (
+        active_skill_root
+        / ".sos-archive"
+        / "apify"
+        / "apify-actor-development"
+    ).as_posix()
+
+    restore_exit = main(
+        ["restore", backup_id, "--runtime-root", "runtime", "--apply"]
+    )
+
+    assert restore_exit == 0
+    assert (active_skill_root / "apify-actor-development" / "SKILL.md").is_file()
+
+
 def test_cli_plan_claude_with_codex_config_rejected(tmp_path):
     from sos.cli import main
     import pytest

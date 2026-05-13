@@ -95,11 +95,15 @@ def _archive_restore_entries_from_manifests(
                 {
                     "pack_id": manifest.id,
                     "skill_name": skill.name,
-                    "archive_path": skill.archived_source_path.as_posix(),
-                    "source_path": skill.source_path.as_posix(),
+                    "archive_path": _metadata_path_value(skill.archived_source_path),
+                    "source_path": _metadata_path_value(skill.source_path),
                 }
             )
     return entries
+
+
+def _metadata_path_value(path: Path) -> str:
+    return path.expanduser().resolve(strict=False).as_posix()
 
 
 def create_workspace_activation_backup(

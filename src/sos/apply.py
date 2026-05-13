@@ -145,12 +145,6 @@ def apply_write_plan(
         baselined_manifests = _with_initial_fingerprints(
             validated.manifests, archive_map=archive_map
         )
-        if host == "claude":
-            record_claude_archive_restore_entries(
-                runtime_paths,
-                backup.backup_id,
-                baselined_manifests,
-            )
         for operation, manifest in zip(
             _operations_of_kind(plan, OperationKind.WRITE_MANIFEST),
             baselined_manifests,
@@ -183,6 +177,13 @@ def apply_write_plan(
 
         for path in source_deletion_paths:
             _remove_path(path)
+
+        if host == "claude":
+            record_claude_archive_restore_entries(
+                runtime_paths,
+                backup.backup_id,
+                baselined_manifests,
+            )
     except Exception as error:
         rollback_message = ""
         try:

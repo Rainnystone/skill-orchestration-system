@@ -721,6 +721,48 @@ def test_claude_apply_saves_manifest_with_host_field(tmp_path):
     assert manifest.host == "claude"
 
 
+def test_claude_apply_failure_does_not_persist_archive_restore_entries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "demo-skill")
+    runtime_paths = _runtime_paths(tmp_path)
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n", encoding="utf-8")
+    plan = build_pack_apply_plan(
+        runtime_paths,
+        active_root,
+        codex_config_path,
+        (PackProposal(pack_id="demo", skill_names=("demo-skill",), reason="t"),),
+        host="claude",
+    )
+
+    def fail_save_manifest(*_args, **_kwargs) -> None:
+        raise RuntimeError("manifest write failed")
+
+    monkeypatch.setattr(apply_module, "save_pack_manifest", fail_save_manifest)
+
+    result = apply_write_plan(
+        plan,
+        runtime_paths,
+        codex_config_path,
+        active_root,
+        apply=True,
+        host="claude",
+    )
+
+    assert result.status == "failed"
+    assert result.backup_id is not None
+    assert "manifest write failed" in result.message
+    metadata = read_toml(
+        runtime_paths.backups / result.backup_id / "metadata.toml"
+    )
+    assert "archive_restore_entries" not in metadata
+    assert (active_root / "demo-skill" / "SKILL.md").is_file()
+    assert not (active_root / ".sos-archive" / "demo" / "demo-skill").exists()
+
+
 def test_apply_rejects_skill_names_colliding_across_manifests(tmp_path: Path):
     """When two manifests have skill names that collide by casefold, the
     apply validator must reject the tampered plan."""
