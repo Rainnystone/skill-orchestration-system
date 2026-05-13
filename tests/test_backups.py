@@ -368,6 +368,38 @@ def test_claude_backup_metadata_records_archive_restore_entries(tmp_path: Path):
     assert (runtime_paths.backups / backup_id / "metadata.toml").is_file()
 
 
+def test_restore_claude_backup_uses_selected_backup_metadata_not_current_manifests(
+    tmp_path: Path,
+):
+    runtime_paths, skill_root, codex_config_path, backup_a, _ = _apply_claude_pack(
+        tmp_path,
+        pack_id="alpha",
+        skill_name="alpha-skill",
+    )
+    _, _, _, backup_b, _ = _apply_claude_pack(
+        tmp_path,
+        pack_id="beta",
+        skill_name="beta-skill",
+    )
+
+    beta_archive = skill_root / ".sos-archive" / "beta" / "beta-skill"
+    assert beta_archive.is_dir()
+    assert backup_a != backup_b
+
+    restore_backup(
+        runtime_paths,
+        backup_a,
+        codex_config_path,
+        runtime_paths.vault,
+        apply=True,
+    )
+
+    assert (skill_root / "alpha-skill" / "SKILL.md").is_file()
+    assert not (skill_root / ".sos-archive" / "alpha" / "alpha-skill").exists()
+    assert beta_archive.is_dir()
+    assert not (skill_root / "beta-skill").exists()
+
+
 def test_restore_refuses_when_archive_missing(tmp_path):
     """Restore should error if the .sos-archive entry is gone (user manually deleted it)."""
     import shutil

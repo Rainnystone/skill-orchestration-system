@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -183,7 +184,7 @@ def restore_backup(
     host = str(record.metadata.get("host", "codex"))
 
     if host == "claude":
-        archive_moves = _planned_archive_restore(runtime_paths)
+        archive_moves = _planned_archive_restore_for_backup(record, runtime_paths)
         _restore_archive_moves(archive_moves)
         if record.vault_path is not None:
             if vault_root is None:
@@ -338,6 +339,62 @@ def _planned_archive_restore(
                 )
             moves.append((skill.archived_source_path, skill.source_path))
     return tuple(moves)
+
+
+def _planned_archive_restore_for_backup(
+    record: BackupRecord,
+    runtime_paths: RuntimePaths,
+) -> tuple[tuple[Path, Path], ...]:
+    entries = record.metadata.get("archive_restore_entries")
+    if entries is None:
+        return _planned_archive_restore(runtime_paths)
+    if not isinstance(entries, list):
+        raise ValueError("archive_restore_entries must be a list")
+
+    moves: list[tuple[Path, Path]] = []
+    target_keys: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError("archive restore entry must be a table")
+        pack_id = _safe_metadata_component(entry.get("pack_id"), "pack_id")
+        skill_name = _safe_metadata_component(entry.get("skill_name"), "skill_name")
+        archive_path = _required_metadata_path(entry.get("archive_path"), "archive_path")
+        source_path = _required_metadata_path(entry.get("source_path"), "source_path")
+        target_key = _cross_platform_path_key(source_path)
+        if target_key in target_keys:
+            raise ValueError("archive restore target collision")
+        target_keys.add(target_key)
+        if not archive_path.is_dir():
+            raise ValueError(
+                f"archive entry missing for {pack_id}/{skill_name}; expected at {archive_path}"
+            )
+        moves.append((archive_path, source_path))
+    return tuple(moves)
+
+
+def _safe_metadata_component(value: Any, label: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"archive restore entry {label} must be a string")
+    if (
+        not value
+        or value in {".", ".."}
+        or Path(value).is_absolute()
+        or "/" in value
+        or "\\" in value
+        or Path(value).name != value
+    ):
+        raise ValueError(f"unsafe archive restore entry {label}: {value}")
+    return value
+
+
+def _required_metadata_path(value: Any, label: str) -> Path:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"archive restore entry {label} must be a path string")
+    return Path(value)
+
+
+def _cross_platform_path_key(path: Path) -> str:
+    return unicodedata.normalize("NFC", path.resolve(strict=False).as_posix()).casefold()
 
 
 def _restore_archive_moves(moves: tuple[tuple[Path, Path], ...]) -> None:
