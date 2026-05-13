@@ -454,6 +454,14 @@ def _validated_manifests(
         for skill in manifest.skills:
             _safe_component(skill.name, "skill_name")
             _ensure_under(skill.source_path, active_root, "manifest source path")
+            expected_source_path = active_root / skill.name
+            if skill.source_path.resolve(strict=False) != expected_source_path.resolve(
+                strict=False
+            ):
+                raise ValueError(
+                    "manifest source path does not match skill name: "
+                    f"{skill.source_path} != {expected_source_path}"
+                )
             _ensure_under(skill.vault_path, runtime_paths.vault, "manifest vault path")
             validate_skill_folder(skill.source_path)
 

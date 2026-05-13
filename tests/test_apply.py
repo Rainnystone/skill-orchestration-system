@@ -726,8 +726,7 @@ def test_apply_rejects_skill_names_colliding_across_manifests(tmp_path: Path):
     from sos.models import WritePlan, WriteOperation, OperationKind
 
     active_root = tmp_path / "active"
-    sk_a = _write_skill(active_root, "skill-a")
-    sk_b = _write_skill(active_root, "skill-b")
+    source = _write_skill(active_root, "alpha")
     runtime_paths = _runtime_paths(tmp_path)
 
     plan = WritePlan(
@@ -749,8 +748,8 @@ def test_apply_rejects_skill_names_colliding_across_manifests(tmp_path: Path):
                         "host": "codex",
                         "skills": [{
                             "name": "alpha",
-                            "source_path": str(sk_a),
-                            "vault_path": str(runtime_paths.vault / "pack-a" / "skill-a"),
+                            "source_path": str(source),
+                            "vault_path": str(runtime_paths.vault / "pack-a" / "alpha"),
                         }],
                         "triggers": [{"term": "alpha", "reason": "test"}],
                     }
@@ -769,11 +768,11 @@ def test_apply_rejects_skill_names_colliding_across_manifests(tmp_path: Path):
                         "sync_policy": "clean-auto",
                         "host": "codex",
                         "skills": [{
-                            "name": "Alpha",
-                            "source_path": str(sk_b),
-                            "vault_path": str(runtime_paths.vault / "pack-b" / "skill-b"),
+                            "name": "alpha",
+                            "source_path": str(source),
+                            "vault_path": str(runtime_paths.vault / "pack-b" / "alpha"),
                         }],
-                        "triggers": [{"term": "Alpha", "reason": "test"}],
+                        "triggers": [{"term": "alpha", "reason": "test"}],
                     }
                 },
             ),
@@ -877,6 +876,24 @@ def test_apply_rejects_skill_name_colliding_with_manifest_pointer_skill(tmp_path
     )
 
     with pytest.raises(ValueError, match="active skill namespace collision"):
+        apply_module._validated_manifests(plan, runtime_paths, active_root)
+
+
+def test_apply_rejects_source_path_that_does_not_match_manifest_skill_name(
+    tmp_path: Path,
+):
+    active_root = tmp_path / "active"
+    source = _write_skill(active_root, "sos-demo")
+    runtime_paths = _runtime_paths(tmp_path)
+    plan = _tampered_manifest_plan(
+        runtime_paths,
+        pack_id="demo",
+        pointer_skill="sos-demo",
+        skill_name="alpha",
+        source_path=source,
+    )
+
+    with pytest.raises(ValueError, match="manifest source path does not match skill name"):
         apply_module._validated_manifests(plan, runtime_paths, active_root)
 
 
