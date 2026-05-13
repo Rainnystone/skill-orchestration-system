@@ -552,14 +552,16 @@ def _aliases(pack_id: str) -> tuple[str, ...]:
 
 
 def _validate_proposals(proposals: tuple[PackProposal, ...]) -> None:
+    all_skill_names: list[str] = []
     for proposal in proposals:
         _safe_component(proposal.pack_id, "pack_id")
         _pointer_skill(proposal.pack_id)
         for skill_name in proposal.skill_names:
             _safe_component(skill_name, "skill_name")
-        reject_component_collisions(tuple(proposal.skill_names), "skill_name")
+            all_skill_names.append(skill_name)
     pack_ids = tuple(proposal.pack_id for proposal in proposals)
     reject_component_collisions(pack_ids, "pack_id")
+    reject_component_collisions(tuple(all_skill_names), "skill_name")
     pointer_skills = tuple(f"sos-{proposal.pack_id}" for proposal in proposals)
     reject_component_collisions(pointer_skills, "pointer_skill")
 

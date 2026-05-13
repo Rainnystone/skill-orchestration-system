@@ -523,6 +523,24 @@ def test_plan_rejects_pack_ids_that_collide_by_casefold(tmp_path: Path):
         )
 
 
+def test_plan_rejects_skill_names_colliding_across_proposals(tmp_path: Path):
+    """Two proposals with different pack_ids but skill_names that collide by
+    casefold must be rejected."""
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "alpha")
+
+    with pytest.raises(ValueError, match="skill_name collision"):
+        build_pack_apply_plan(
+            _runtime_paths(tmp_path),
+            active_root,
+            tmp_path / "config.toml",
+            (
+                PackProposal(pack_id="pack-a", skill_names=("alpha",), reason="test"),
+                PackProposal(pack_id="pack-b", skill_names=("Alpha",), reason="test"),
+            ),
+        )
+
+
 def test_plan_rejects_skill_names_that_collide_by_unicode_normalization(
     tmp_path: Path,
 ):
