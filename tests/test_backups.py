@@ -287,6 +287,87 @@ def test_restore_claude_pack_moves_archive_back(tmp_path):
     assert not archived.exists()
 
 
+def _write_claude_skill(skill_root: Path, name: str) -> None:
+    skill_dir = skill_root / name
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {name}\n---\n",
+        encoding="utf-8",
+    )
+
+
+def _apply_claude_pack(
+    tmp_path: Path,
+    *,
+    pack_id: str,
+    skill_name: str,
+):
+    from sos.apply import apply_write_plan
+    from sos.cli import _annotate_backup_metadata
+    from sos.planner import build_pack_apply_plan
+    from sos.propose import PackProposal
+    from sos.toml_io import read_toml
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir(exist_ok=True)
+    _write_claude_skill(skill_root, skill_name)
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+    plan = build_pack_apply_plan(
+        runtime_paths,
+        skill_root,
+        codex_config_path,
+        (PackProposal(pack_id=pack_id, skill_names=(skill_name,), reason="test"),),
+        host="claude",
+    )
+    apply_result = apply_write_plan(
+        plan,
+        runtime_paths,
+        codex_config_path,
+        skill_root,
+        apply=True,
+        host="claude",
+    )
+    assert apply_result.status == "applied"
+    assert apply_result.backup_id is not None
+    _annotate_backup_metadata(
+        runtime_paths,
+        apply_result.backup_id,
+        codex_config_path,
+        skill_root,
+        "claude",
+    )
+    metadata_path = runtime_paths.backups / apply_result.backup_id / "metadata.toml"
+    return runtime_paths, skill_root, codex_config_path, apply_result.backup_id, read_toml(metadata_path)
+
+
+def test_claude_backup_metadata_records_archive_restore_entries(tmp_path: Path):
+    runtime_paths, skill_root, _, backup_id, metadata = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+
+    assert metadata["host"] == "claude"
+    assert metadata["vault_root"] == runtime_paths.vault.as_posix()
+    assert metadata["active_skill_root"] == skill_root.as_posix()
+    entries = metadata["archive_restore_entries"]
+    assert entries == [
+        {
+            "pack_id": "demo",
+            "skill_name": "demo-skill",
+            "archive_path": (skill_root / ".sos-archive" / "demo" / "demo-skill").as_posix(),
+            "source_path": (skill_root / "demo-skill").as_posix(),
+        }
+    ]
+    assert "\\" not in metadata["vault_root"]
+    assert "\\" not in metadata["active_skill_root"]
+    assert "\\" not in entries[0]["archive_path"]
+    assert "\\" not in entries[0]["source_path"]
+    assert (runtime_paths.backups / backup_id / "metadata.toml").is_file()
+
+
 def test_restore_refuses_when_archive_missing(tmp_path):
     """Restore should error if the .sos-archive entry is gone (user manually deleted it)."""
     import shutil

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sos.models import BackupRecord
+from sos.models import BackupRecord, PackManifest
 from sos.paths import RuntimePaths
 from sos.toml_io import read_toml, write_toml
 
@@ -62,6 +62,42 @@ def create_backup(
         vault_path=vault_snapshot_path,
         metadata=metadata,
     )
+
+
+def record_claude_archive_restore_entries(
+    runtime_paths: RuntimePaths,
+    backup_id: str,
+    manifests: tuple[PackManifest, ...],
+) -> None:
+    metadata_path = runtime_paths.backups / backup_id / "metadata.toml"
+    if not metadata_path.exists():
+        return
+    metadata = read_toml(metadata_path)
+    metadata["archive_restore_entries"] = _archive_restore_entries_from_manifests(
+        manifests
+    )
+    write_toml(metadata_path, metadata)
+
+
+def _archive_restore_entries_from_manifests(
+    manifests: tuple[PackManifest, ...],
+) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    for manifest in manifests:
+        if manifest.host != "claude":
+            continue
+        for skill in manifest.skills:
+            if skill.archived_source_path is None:
+                continue
+            entries.append(
+                {
+                    "pack_id": manifest.id,
+                    "skill_name": skill.name,
+                    "archive_path": skill.archived_source_path.as_posix(),
+                    "source_path": skill.source_path.as_posix(),
+                }
+            )
+    return entries
 
 
 def create_workspace_activation_backup(
