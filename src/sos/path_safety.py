@@ -30,7 +30,7 @@ def reject_component_collisions(values: tuple[str, ...], label: str) -> None:
     for value in values:
         key = cross_platform_component_key(value)
         existing = seen.get(key)
-        if existing is not None and existing != value:
+        if existing is not None:
             raise ValueError(f"{label} collision: {existing!r} and {value!r}")
         seen[key] = value
 
@@ -40,6 +40,6 @@ def reject_path_collisions(paths: tuple[Path, ...], label: str) -> None:
     for path in paths:
         key = cross_platform_path_key(path)
         existing = seen.get(key)
-        if existing is not None and existing != path:
+        if existing is not None:
             raise ValueError(f"{label} collision: {existing!r} and {path!r}")
         seen[key] = path
