@@ -564,6 +564,10 @@ def _validate_proposals(proposals: tuple[PackProposal, ...]) -> None:
     reject_component_collisions(tuple(all_skill_names), "skill_name")
     pointer_skills = tuple(f"sos-{proposal.pack_id}" for proposal in proposals)
     reject_component_collisions(pointer_skills, "pointer_skill")
+    reject_component_collisions(
+        (*tuple(all_skill_names), *pointer_skills, "sos-haruhi"),
+        "active skill namespace",
+    )
 
 
 def _safe_component(value: str, label: str) -> str:

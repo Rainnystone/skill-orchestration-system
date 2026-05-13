@@ -541,6 +541,51 @@ def test_plan_rejects_skill_names_colliding_across_proposals(tmp_path: Path):
         )
 
 
+def test_plan_rejects_pack_id_whose_pointer_collides_with_companion(tmp_path: Path):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "alpha")
+
+    with pytest.raises(ValueError, match="active skill namespace collision"):
+        build_pack_apply_plan(
+            _runtime_paths(tmp_path),
+            active_root,
+            tmp_path / "config.toml",
+            (
+                PackProposal(pack_id="haruhi", skill_names=("alpha",), reason="test"),
+            ),
+        )
+
+
+def test_plan_rejects_skill_name_colliding_with_generated_pointer(tmp_path: Path):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "sos-demo")
+
+    with pytest.raises(ValueError, match="active skill namespace collision"):
+        build_pack_apply_plan(
+            _runtime_paths(tmp_path),
+            active_root,
+            tmp_path / "config.toml",
+            (
+                PackProposal(pack_id="demo", skill_names=("sos-demo",), reason="test"),
+            ),
+        )
+
+
+def test_plan_rejects_skill_name_colliding_with_companion_pointer(tmp_path: Path):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "sos-haruhi")
+
+    with pytest.raises(ValueError, match="active skill namespace collision"):
+        build_pack_apply_plan(
+            _runtime_paths(tmp_path),
+            active_root,
+            tmp_path / "config.toml",
+            (
+                PackProposal(pack_id="demo", skill_names=("sos-haruhi",), reason="test"),
+            ),
+        )
+
+
 def test_plan_rejects_skill_names_that_collide_by_unicode_normalization(
     tmp_path: Path,
 ):

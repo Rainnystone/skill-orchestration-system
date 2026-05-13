@@ -467,6 +467,10 @@ def _validated_manifests(
 
     pointer_skills = tuple(manifest.pointer_skill for manifest in manifests)
     reject_component_collisions(pointer_skills, "pointer_skill")
+    reject_component_collisions(
+        (*tuple(all_skill_names), *pointer_skills, "sos-haruhi"),
+        "active skill namespace",
+    )
 
     for manifest in manifests:
         if manifest.pointer_skill != f"sos-{manifest.id}":

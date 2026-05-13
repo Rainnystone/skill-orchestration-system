@@ -534,6 +534,48 @@ def _write_config(config_path: Path, *skill_md_paths: Path) -> None:
     write_toml(config_path, data)
 
 
+def _tampered_manifest_plan(
+    runtime_paths: RuntimePaths,
+    *,
+    pack_id: str,
+    pointer_skill: str,
+    skill_name: str,
+    source_path: Path,
+) -> WritePlan:
+    return WritePlan(
+        plan_id="tampered-manifest-test",
+        pack_ids=(pack_id,),
+        host="codex",
+        operations=(
+            WriteOperation(
+                OperationKind.WRITE_MANIFEST,
+                target=runtime_paths.packs / f"{pack_id}.toml",
+                metadata={
+                    "manifest": {
+                        "id": pack_id,
+                        "display_name": pack_id.title(),
+                        "aliases": [],
+                        "description": "",
+                        "pointer_skill": pointer_skill,
+                        "sync_policy": "clean-auto",
+                        "host": "codex",
+                        "skills": [
+                            {
+                                "name": skill_name,
+                                "source_path": str(source_path),
+                                "vault_path": str(
+                                    runtime_paths.vault / pack_id / skill_name
+                                ),
+                            }
+                        ],
+                        "triggers": [{"term": skill_name, "reason": "test"}],
+                    }
+                },
+            ),
+        ),
+    )
+
+
 def test_write_config_produces_valid_toml_on_all_platforms(tmp_path: Path):
     source = _write_skill(tmp_path, "apify-actor-development")
     config_path = tmp_path / "config.toml"
@@ -803,4 +845,52 @@ def test_apply_rejects_pointer_skill_collisions(tmp_path: Path):
     )
 
     with pytest.raises(ValueError, match="pointer_skill collision"):
+        apply_module._validated_manifests(plan, runtime_paths, active_root)
+
+
+def test_apply_rejects_pointer_skill_colliding_with_companion(tmp_path: Path):
+    active_root = tmp_path / "active"
+    source = _write_skill(active_root, "alpha")
+    runtime_paths = _runtime_paths(tmp_path)
+    plan = _tampered_manifest_plan(
+        runtime_paths,
+        pack_id="haruhi",
+        pointer_skill="sos-haruhi",
+        skill_name="alpha",
+        source_path=source,
+    )
+
+    with pytest.raises(ValueError, match="active skill namespace collision"):
+        apply_module._validated_manifests(plan, runtime_paths, active_root)
+
+
+def test_apply_rejects_skill_name_colliding_with_manifest_pointer_skill(tmp_path: Path):
+    active_root = tmp_path / "active"
+    source = _write_skill(active_root, "sos-demo")
+    runtime_paths = _runtime_paths(tmp_path)
+    plan = _tampered_manifest_plan(
+        runtime_paths,
+        pack_id="demo",
+        pointer_skill="sos-demo",
+        skill_name="sos-demo",
+        source_path=source,
+    )
+
+    with pytest.raises(ValueError, match="active skill namespace collision"):
+        apply_module._validated_manifests(plan, runtime_paths, active_root)
+
+
+def test_apply_rejects_pointer_skill_that_does_not_match_pack_id(tmp_path: Path):
+    active_root = tmp_path / "active"
+    source = _write_skill(active_root, "alpha")
+    runtime_paths = _runtime_paths(tmp_path)
+    plan = _tampered_manifest_plan(
+        runtime_paths,
+        pack_id="demo",
+        pointer_skill="sos-other",
+        skill_name="alpha",
+        source_path=source,
+    )
+
+    with pytest.raises(ValueError, match="does not match expected sos-demo"):
         apply_module._validated_manifests(plan, runtime_paths, active_root)
