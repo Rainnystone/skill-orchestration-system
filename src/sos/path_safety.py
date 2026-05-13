@@ -4,6 +4,16 @@ import unicodedata
 from pathlib import Path
 
 
+_WINDOWS_RESERVED_NAMES = frozenset({
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    *(f"com{d}" for d in range(1, 10)),
+    *(f"lpt{d}" for d in range(1, 10)),
+})
+
+
 def safe_component(value: str, label: str) -> str:
     if (
         not value
@@ -13,6 +23,10 @@ def safe_component(value: str, label: str) -> str:
         or "\\" in value
         or Path(value).name != value
     ):
+        raise ValueError(f"unsafe {label}: {value}")
+    if value.rstrip(". ").casefold() in _WINDOWS_RESERVED_NAMES:
+        raise ValueError(f"unsafe {label}: {value}")
+    if value != value.rstrip(". "):
         raise ValueError(f"unsafe {label}: {value}")
     return value
 
