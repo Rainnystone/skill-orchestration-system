@@ -676,3 +676,67 @@ def test_claude_apply_saves_manifest_with_host_field(tmp_path):
     assert apply_result.status == "applied"
     manifest = load_pack_manifest(runtime_paths.packs / "demo.toml")
     assert manifest.host == "claude"
+
+
+def test_apply_rejects_skill_names_colliding_across_manifests(tmp_path: Path):
+    """When two manifests have skill names that collide by casefold, the
+    apply validator must reject the tampered plan."""
+    from sos.models import WritePlan, WriteOperation, OperationKind
+
+    active_root = tmp_path / "active"
+    sk_a = _write_skill(active_root, "skill-a")
+    sk_b = _write_skill(active_root, "skill-b")
+    runtime_paths = _runtime_paths(tmp_path)
+
+    plan = WritePlan(
+        plan_id="collision-test",
+        pack_ids=("pack-a", "pack-b"),
+        host="codex",
+        operations=(
+            WriteOperation(
+                OperationKind.WRITE_MANIFEST,
+                target=runtime_paths.packs / "pack-a.toml",
+                metadata={
+                    "manifest": {
+                        "id": "pack-a",
+                        "display_name": "Pack A",
+                        "aliases": [],
+                        "description": "",
+                        "pointer_skill": "sos-pack-a",
+                        "sync_policy": "clean-auto",
+                        "host": "codex",
+                        "skills": [{
+                            "name": "alpha",
+                            "source_path": str(sk_a),
+                            "vault_path": str(runtime_paths.vault / "pack-a" / "skill-a"),
+                        }],
+                        "triggers": [{"term": "alpha", "reason": "test"}],
+                    }
+                },
+            ),
+            WriteOperation(
+                OperationKind.WRITE_MANIFEST,
+                target=runtime_paths.packs / "pack-b.toml",
+                metadata={
+                    "manifest": {
+                        "id": "pack-b",
+                        "display_name": "Pack B",
+                        "aliases": [],
+                        "description": "",
+                        "pointer_skill": "sos-pack-b",
+                        "sync_policy": "clean-auto",
+                        "host": "codex",
+                        "skills": [{
+                            "name": "Alpha",
+                            "source_path": str(sk_b),
+                            "vault_path": str(runtime_paths.vault / "pack-b" / "skill-b"),
+                        }],
+                        "triggers": [{"term": "Alpha", "reason": "test"}],
+                    }
+                },
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="skill_name collision"):
+        apply_module._validated_manifests(plan, runtime_paths, active_root)

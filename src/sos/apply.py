@@ -25,6 +25,7 @@ from sos.models import (
     WriteOperation,
     WritePlan,
 )
+from sos.path_safety import reject_component_collisions, safe_component
 from sos.paths import RuntimePaths
 from sos.pointer import render_v1_active_skills
 from sos.skill_fs import replace_skill_folder_atomic, validate_skill_folder
@@ -455,6 +456,15 @@ def _validated_manifests(
             _ensure_under(skill.source_path, active_root, "manifest source path")
             _ensure_under(skill.vault_path, runtime_paths.vault, "manifest vault path")
             validate_skill_folder(skill.source_path)
+
+    pack_ids = tuple(manifest.id for manifest in manifests)
+    reject_component_collisions(pack_ids, "pack_id")
+    all_skill_names: list[str] = []
+    for manifest in manifests:
+        for skill in manifest.skills:
+            all_skill_names.append(skill.name)
+    reject_component_collisions(tuple(all_skill_names), "skill_name")
+
     return manifests
 
 
@@ -780,16 +790,7 @@ def _required_path(path: Path | None) -> Path:
 
 
 def _safe_component(value: str, label: str) -> str:
-    if (
-        not value
-        or value in {".", ".."}
-        or Path(value).is_absolute()
-        or "/" in value
-        or "\\" in value
-        or Path(value).name != value
-    ):
-        raise ValueError(f"unsafe {label}: {value}")
-    return value
+    return safe_component(value, label)
 
 
 def _safe_pointer_skill(value: str) -> str:
