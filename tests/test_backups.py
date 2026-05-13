@@ -490,3 +490,30 @@ def test_restore_refuses_when_archive_missing(tmp_path):
             runtime_paths.vault,
             apply=True,
         )
+
+
+def test_restore_claude_legacy_backup_without_archive_entries_uses_manifest_fallback(
+    tmp_path: Path,
+):
+    from sos.toml_io import read_toml
+
+    runtime_paths, skill_root, codex_config_path, backup_id, _ = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+    metadata_path = runtime_paths.backups / backup_id / "metadata.toml"
+    metadata = read_toml(metadata_path)
+    metadata.pop("archive_restore_entries")
+    write_toml(metadata_path, metadata)
+
+    restore_backup(
+        runtime_paths,
+        backup_id,
+        codex_config_path,
+        runtime_paths.vault,
+        apply=True,
+    )
+
+    assert (skill_root / "demo-skill" / "SKILL.md").is_file()
+    assert not (skill_root / ".sos-archive" / "demo" / "demo-skill").exists()
