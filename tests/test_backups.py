@@ -195,6 +195,50 @@ def test_backup_metadata_paths_are_posix_on_all_platforms(tmp_path: Path):
         assert "\\" not in str(record.metadata["vault_snapshot_path"])
 
 
+def test_restore_claude_rejects_target_collisions_before_moving(tmp_path: Path):
+    runtime_paths, skill_root, codex_config_path, backup_id, metadata = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+    archive_one = skill_root / ".sos-archive" / "demo" / "demo-skill"
+    archive_two = skill_root / ".sos-archive" / "demo" / "other-skill"
+    archive_two.mkdir(parents=True)
+    (archive_two / "SKILL.md").write_text(
+        "---\nname: other-skill\ndescription: other\n---\n",
+        encoding="utf-8",
+    )
+    metadata["archive_restore_entries"] = [
+        {
+            "pack_id": "demo",
+            "skill_name": "demo-skill",
+            "archive_path": archive_one.as_posix(),
+            "source_path": (skill_root / "Demo-Skill").as_posix(),
+        },
+        {
+            "pack_id": "demo",
+            "skill_name": "other-skill",
+            "archive_path": archive_two.as_posix(),
+            "source_path": (skill_root / "demo-skill").as_posix(),
+        },
+    ]
+    write_toml(runtime_paths.backups / backup_id / "metadata.toml", metadata)
+
+    with pytest.raises(ValueError, match="archive restore target collision"):
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )
+
+    assert archive_one.is_dir()
+    assert archive_two.is_dir()
+    assert not (skill_root / "Demo-Skill").exists()
+    assert not (skill_root / "demo-skill").exists()
+
+
 def test_backup_with_posix_metadata_round_trips_through_restore(tmp_path: Path):
     runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
     config_path, vault_root = _write_config_and_vault(tmp_path, "enabled = true\n", "# Original\n")

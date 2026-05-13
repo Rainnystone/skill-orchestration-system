@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
-import unicodedata
+from sos.path_safety import cross_platform_path_key, safe_component
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -367,7 +367,7 @@ def _planned_archive_restore_for_backup(
         skill_name = _safe_metadata_component(entry.get("skill_name"), "skill_name")
         archive_path = _required_metadata_path(entry.get("archive_path"), "archive_path")
         source_path = _required_metadata_path(entry.get("source_path"), "source_path")
-        target_key = _cross_platform_path_key(source_path)
+        target_key = cross_platform_path_key(source_path)
         if target_key in target_keys:
             raise ValueError("archive restore target collision")
         target_keys.add(target_key)
@@ -382,26 +382,16 @@ def _planned_archive_restore_for_backup(
 def _safe_metadata_component(value: Any, label: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"archive restore entry {label} must be a string")
-    if (
-        not value
-        or value in {".", ".."}
-        or Path(value).is_absolute()
-        or "/" in value
-        or "\\" in value
-        or Path(value).name != value
-    ):
-        raise ValueError(f"unsafe archive restore entry {label}: {value}")
-    return value
+    try:
+        return safe_component(value, label)
+    except ValueError as error:
+        raise ValueError(f"unsafe archive restore entry {label}: {value}") from error
 
 
 def _required_metadata_path(value: Any, label: str) -> Path:
     if not isinstance(value, str) or not value:
         raise ValueError(f"archive restore entry {label} must be a path string")
     return Path(value)
-
-
-def _cross_platform_path_key(path: Path) -> str:
-    return unicodedata.normalize("NFC", path.resolve(strict=False).as_posix()).casefold()
 
 
 def _restore_archive_moves(moves: tuple[tuple[Path, Path], ...]) -> None:
