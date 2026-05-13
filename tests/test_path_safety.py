@@ -66,3 +66,10 @@ def test_safe_component_rejects_trailing(_desc: str, name: str):
 def test_safe_component_accepts_normal_name():
     """A normal safe name should be returned unchanged."""
     assert safe_component("normal-skill", "x") == "normal-skill"
+
+
+def test_reject_component_collisions_rejects_pointer_skills():
+    """Pointer skill names that collide by casefold must be caught with
+    an explicit 'pointer_skill collision' message."""
+    with pytest.raises(ValueError, match="pointer_skill collision"):
+        reject_component_collisions(("sos-Demo", "sos-demo"), "pointer_skill")
