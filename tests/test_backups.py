@@ -670,3 +670,42 @@ def test_restore_claude_rollback_double_failure_shows_combined_error(
     msg = str(exc_info.value)
     assert "vault restore failed" in msg
     assert "rollback failed" in msg
+
+
+def test_legacy_restore_rejects_target_collisions(tmp_path: Path):
+    from sos.toml_io import read_toml, write_toml
+
+    # Set up two packs whose skills have source_paths colliding by casefold.
+    # Use _apply_claude_pack for each, then remove archive_restore_entries
+    # to force the legacy manifest fallback.
+
+    # Pack A: creates archive at .../pack-a/demo-skill, source = skills/demo-skill
+    runtime_paths, skill_root, codex_config_path, backup_a, meta_a = _apply_claude_pack(
+        tmp_path,
+        pack_id="pack-a",
+        skill_name="demo-skill",
+    )
+    # Pack B: creates archive at .../pack-b/DEMO-SKILL, source = skills/DEMO-SKILL
+    # source_path casefolds to same as demo-skill → collision
+    _, _, _, backup_b, meta_b = _apply_claude_pack(
+        tmp_path,
+        pack_id="pack-b",
+        skill_name="DEMO-SKILL",
+    )
+
+    # Use backup B's metadata but strip archive_restore_entries to force
+    # legacy fallback (reads both pack manifests from runtime_paths.packs)
+    meta_b.pop("archive_restore_entries")
+    write_toml(
+        runtime_paths.backups / backup_b / "metadata.toml",
+        meta_b,
+    )
+
+    with pytest.raises(ValueError, match="collision"):
+        restore_backup(
+            runtime_paths,
+            backup_b,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )

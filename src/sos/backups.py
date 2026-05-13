@@ -4,7 +4,7 @@ import os
 import shutil
 import tempfile
 from sos._archive import ARCHIVE_DIR_NAME
-from sos.path_safety import cross_platform_path_key, safe_component
+from sos.path_safety import cross_platform_path_key, reject_path_collisions, safe_component
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -353,6 +353,9 @@ def _planned_archive_restore(
                     f"expected at {skill.archived_source_path}"
                 )
             moves.append((skill.archived_source_path, skill.source_path))
+    if moves:
+        _, targets = zip(*moves)
+        reject_path_collisions(tuple(targets), "archive restore target")
     return tuple(moves)
 
 
