@@ -11,6 +11,7 @@ from sos.planner import (
     summarize_write_plan,
 )
 from sos.propose import PackProposal
+from sos.toml_io import write_toml
 
 
 def _write_skill(root: Path, name: str) -> Path:
@@ -584,6 +585,45 @@ def test_plan_rejects_skill_name_colliding_with_companion_pointer(tmp_path: Path
                 PackProposal(pack_id="demo", skill_names=("sos-haruhi",), reason="test"),
             ),
         )
+
+
+def test_plan_rejects_pointer_colliding_with_unmanaged_active_folder(tmp_path: Path):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "alpha")
+    _write_skill(active_root, "sos-demo")
+
+    with pytest.raises(ValueError, match="active skill namespace collision"):
+        build_pack_apply_plan(
+            _runtime_paths(tmp_path),
+            active_root,
+            tmp_path / "config.toml",
+            (
+                PackProposal(pack_id="demo", skill_names=("alpha",), reason="test"),
+            ),
+        )
+
+
+def test_plan_allows_existing_pointer_folder_listed_in_registry(tmp_path: Path):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "alpha")
+    _write_skill(active_root, "sos-demo")
+    _write_skill(active_root, "sos-haruhi")
+    runtime_paths = _runtime_paths(tmp_path)
+    write_toml(
+        runtime_paths.state / "registry.toml",
+        {"active_pointers": ["sos-demo", "sos-haruhi"]},
+    )
+
+    plan = build_pack_apply_plan(
+        runtime_paths,
+        active_root,
+        tmp_path / "config.toml",
+        (
+            PackProposal(pack_id="demo", skill_names=("alpha",), reason="test"),
+        ),
+    )
+
+    assert plan.pack_ids == ("demo",)
 
 
 def test_plan_rejects_skill_names_that_collide_by_unicode_normalization(

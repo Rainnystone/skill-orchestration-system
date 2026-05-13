@@ -195,7 +195,8 @@ def test_apply_restores_preexisting_writes_when_config_write_fails(
     preexisting_manifest = runtime_paths.packs / "apify.toml"
     write_toml(preexisting_manifest, {"id": "old-apify"})
     preexisting_registry = runtime_paths.state / "registry.toml"
-    write_toml(preexisting_registry, {"active_pointers": ["old-pointer"]})
+    existing_registry = {"active_pointers": ["sos-haruhi", "sos-apify"]}
+    write_toml(preexisting_registry, existing_registry)
     preexisting_haruhi = active_root / "sos-haruhi" / "SKILL.md"
     preexisting_haruhi.parent.mkdir(parents=True)
     preexisting_haruhi.write_text("old haruhi\n", encoding="utf-8")
@@ -223,7 +224,7 @@ def test_apply_restores_preexisting_writes_when_config_write_fails(
     assert codex_config_path.read_text(encoding="utf-8") == original_config_text
     assert (preexisting_vault / "SKILL.md").read_text(encoding="utf-8") == "old vault\n"
     assert read_toml(preexisting_manifest) == {"id": "old-apify"}
-    assert read_toml(preexisting_registry) == {"active_pointers": ["old-pointer"]}
+    assert read_toml(preexisting_registry) == existing_registry
     assert preexisting_haruhi.read_text(encoding="utf-8") == "old haruhi\n"
     assert preexisting_apify.read_text(encoding="utf-8") == "old apify\n"
     assert (source / "SKILL.md").is_file()
@@ -895,6 +896,78 @@ def test_apply_rejects_source_path_that_does_not_match_manifest_skill_name(
 
     with pytest.raises(ValueError, match="manifest source path does not match skill name"):
         apply_module._validated_manifests(plan, runtime_paths, active_root)
+
+
+def test_apply_rejects_pointer_colliding_with_unmanaged_active_folder(tmp_path: Path):
+    active_root = tmp_path / "active"
+    source = _write_skill(active_root, "alpha")
+    runtime_paths = _runtime_paths(tmp_path)
+    codex_config_path = tmp_path / "config.toml"
+    _write_config(codex_config_path, source / "SKILL.md")
+    plan = build_pack_apply_plan(
+        runtime_paths,
+        active_root,
+        codex_config_path,
+        (
+            PackProposal(pack_id="demo", skill_names=("alpha",), reason="test"),
+        ),
+    )
+    _write_skill(active_root, "sos-demo")
+
+    with pytest.raises(ValueError, match="active skill namespace collision"):
+        apply_write_plan(
+            plan,
+            runtime_paths,
+            codex_config_path,
+            active_root,
+            apply=True,
+        )
+
+
+def test_apply_allows_registered_existing_pointer_folders_to_be_rewritten(
+    tmp_path: Path,
+):
+    active_root = tmp_path / "active"
+    source = _write_skill(active_root, "alpha")
+    runtime_paths = _runtime_paths(tmp_path)
+    codex_config_path = tmp_path / "config.toml"
+    _write_config(codex_config_path, source / "SKILL.md")
+    write_toml(
+        runtime_paths.state / "registry.toml",
+        {"active_pointers": ["sos-demo", "sos-haruhi"]},
+    )
+    demo_pointer = active_root / "sos-demo" / "SKILL.md"
+    demo_pointer.parent.mkdir(parents=True)
+    demo_pointer.write_text("old demo pointer\n", encoding="utf-8")
+    haruhi_pointer = active_root / "sos-haruhi" / "SKILL.md"
+    haruhi_pointer.parent.mkdir(parents=True)
+    haruhi_pointer.write_text("old haruhi pointer\n", encoding="utf-8")
+    plan = build_pack_apply_plan(
+        runtime_paths,
+        active_root,
+        codex_config_path,
+        (
+            PackProposal(pack_id="demo", skill_names=("alpha",), reason="test"),
+        ),
+    )
+
+    result = apply_write_plan(
+        plan,
+        runtime_paths,
+        codex_config_path,
+        active_root,
+        apply=True,
+    )
+
+    assert result.status == "applied"
+    assert read_toml(runtime_paths.state / "registry.toml")["active_pointers"] == [
+        "sos-haruhi",
+        "sos-demo",
+    ]
+    assert "old demo pointer" not in demo_pointer.read_text(encoding="utf-8")
+    assert "Pack id: `demo`" in demo_pointer.read_text(encoding="utf-8")
+    assert "old haruhi pointer" not in haruhi_pointer.read_text(encoding="utf-8")
+    assert "Registry:" in haruhi_pointer.read_text(encoding="utf-8")
 
 
 def test_apply_rejects_pointer_skill_that_does_not_match_pack_id(tmp_path: Path):

@@ -8,10 +8,12 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from sos._archive import ARCHIVE_DIR_NAME, ArchiveMove, execute_move_to_archive, rollback_archive_moves
+from sos.active_namespace import validate_active_skill_namespace
 from sos.backups import create_backup, record_claude_archive_restore_entries
 from sos.codex_config import disable_skill_paths_with_backup
 from sos.fingerprint import fingerprint_dir
 from sos.manifest import (
+    load_registry,
     save_pack_manifest,
     save_registry,
     update_registry_after_apply,
@@ -475,9 +477,11 @@ def _validated_manifests(
 
     pointer_skills = tuple(manifest.pointer_skill for manifest in manifests)
     reject_component_collisions(pointer_skills, "pointer_skill")
-    reject_component_collisions(
-        (*tuple(all_skill_names), *pointer_skills, "sos-haruhi"),
-        "active skill namespace",
+    validate_active_skill_namespace(
+        active_root,
+        source_skill_names=tuple(all_skill_names),
+        pointer_skill_names=pointer_skills,
+        managed_pointer_names=_previous_active_pointers(runtime_paths),
     )
 
     for manifest in manifests:
@@ -488,6 +492,13 @@ def _validated_manifests(
             )
 
     return manifests
+
+
+def _previous_active_pointers(runtime_paths: RuntimePaths) -> tuple[str, ...]:
+    registry_path = runtime_paths.state / "registry.toml"
+    if not registry_path.is_file():
+        return ()
+    return load_registry(registry_path).active_pointers
 
 
 def _validate_copy_operations(
