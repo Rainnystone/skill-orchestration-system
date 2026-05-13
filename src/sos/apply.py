@@ -8,10 +8,12 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from sos._archive import ARCHIVE_DIR_NAME, ArchiveMove, execute_move_to_archive, rollback_archive_moves
-from sos.backups import create_backup
+from sos.active_namespace import validate_active_skill_namespace
+from sos.backups import create_backup, record_claude_archive_restore_entries
 from sos.codex_config import disable_skill_paths_with_backup
 from sos.fingerprint import fingerprint_dir
 from sos.manifest import (
+    load_registry,
     save_pack_manifest,
     save_registry,
     update_registry_after_apply,
@@ -25,6 +27,7 @@ from sos.models import (
     WriteOperation,
     WritePlan,
 )
+from sos.path_safety import reject_component_collisions, safe_component
 from sos.paths import RuntimePaths
 from sos.pointer import render_v1_active_skills
 from sos.skill_fs import replace_skill_folder_atomic, validate_skill_folder
@@ -174,6 +177,13 @@ def apply_write_plan(
 
         for path in source_deletion_paths:
             _remove_path(path)
+
+        if host == "claude":
+            record_claude_archive_restore_entries(
+                runtime_paths,
+                backup.backup_id,
+                baselined_manifests,
+            )
     except Exception as error:
         rollback_message = ""
         try:
@@ -447,9 +457,49 @@ def _validated_manifests(
         for skill in manifest.skills:
             _safe_component(skill.name, "skill_name")
             _ensure_under(skill.source_path, active_root, "manifest source path")
+            expected_source_path = active_root / skill.name
+            if skill.source_path.resolve(strict=False) != expected_source_path.resolve(
+                strict=False
+            ):
+                raise ValueError(
+                    "manifest source path does not match skill name: "
+                    f"{skill.source_path} != {expected_source_path}"
+                )
             _ensure_under(skill.vault_path, runtime_paths.vault, "manifest vault path")
             validate_skill_folder(skill.source_path)
+
+    pack_ids = tuple(manifest.id for manifest in manifests)
+    reject_component_collisions(pack_ids, "pack_id")
+    all_skill_names: list[str] = []
+    for manifest in manifests:
+        for skill in manifest.skills:
+            all_skill_names.append(skill.name)
+    reject_component_collisions(tuple(all_skill_names), "skill_name")
+
+    pointer_skills = tuple(manifest.pointer_skill for manifest in manifests)
+    reject_component_collisions(pointer_skills, "pointer_skill")
+    validate_active_skill_namespace(
+        active_root,
+        source_skill_names=tuple(all_skill_names),
+        pointer_skill_names=pointer_skills,
+        managed_pointer_names=_previous_active_pointers(runtime_paths),
+    )
+
+    for manifest in manifests:
+        if manifest.pointer_skill != f"sos-{manifest.id}":
+            raise ValueError(
+                f"pointer_skill {manifest.pointer_skill!r} does not match "
+                f"expected sos-{manifest.id}"
+            )
+
     return manifests
+
+
+def _previous_active_pointers(runtime_paths: RuntimePaths) -> tuple[str, ...]:
+    registry_path = runtime_paths.state / "registry.toml"
+    if not registry_path.is_file():
+        return ()
+    return load_registry(registry_path).active_pointers
 
 
 def _validate_copy_operations(
@@ -774,16 +824,7 @@ def _required_path(path: Path | None) -> Path:
 
 
 def _safe_component(value: str, label: str) -> str:
-    if (
-        not value
-        or value in {".", ".."}
-        or Path(value).is_absolute()
-        or "/" in value
-        or "\\" in value
-        or Path(value).name != value
-    ):
-        raise ValueError(f"unsafe {label}: {value}")
-    return value
+    return safe_component(value, label)
 
 
 def _safe_pointer_skill(value: str) -> str:

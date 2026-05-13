@@ -3,11 +3,13 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from sos._archive import ARCHIVE_DIR_NAME
+from sos.path_safety import cross_platform_path_key, reject_path_collisions, safe_component
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sos.models import BackupRecord
+from sos.models import BackupRecord, PackManifest
 from sos.paths import RuntimePaths
 from sos.toml_io import read_toml, write_toml
 
@@ -62,6 +64,46 @@ def create_backup(
         vault_path=vault_snapshot_path,
         metadata=metadata,
     )
+
+
+def record_claude_archive_restore_entries(
+    runtime_paths: RuntimePaths,
+    backup_id: str,
+    manifests: tuple[PackManifest, ...],
+) -> None:
+    metadata_path = runtime_paths.backups / backup_id / "metadata.toml"
+    if not metadata_path.exists():
+        return
+    metadata = read_toml(metadata_path)
+    metadata["archive_restore_entries"] = _archive_restore_entries_from_manifests(
+        manifests
+    )
+    write_toml(metadata_path, metadata)
+
+
+def _archive_restore_entries_from_manifests(
+    manifests: tuple[PackManifest, ...],
+) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    for manifest in manifests:
+        if manifest.host != "claude":
+            continue
+        for skill in manifest.skills:
+            if skill.archived_source_path is None:
+                continue
+            entries.append(
+                {
+                    "pack_id": manifest.id,
+                    "skill_name": skill.name,
+                    "archive_path": _metadata_path_value(skill.archived_source_path),
+                    "source_path": _metadata_path_value(skill.source_path),
+                }
+            )
+    return entries
+
+
+def _metadata_path_value(path: Path) -> str:
+    return path.expanduser().resolve(strict=False).as_posix()
 
 
 def create_workspace_activation_backup(
@@ -147,12 +189,26 @@ def restore_backup(
     host = str(record.metadata.get("host", "codex"))
 
     if host == "claude":
-        archive_moves = _planned_archive_restore(runtime_paths)
-        _restore_archive_moves(archive_moves)
-        if record.vault_path is not None:
-            if vault_root is None:
-                raise ValueError("vault_root is required for vault restore")
-            _replace_directory_atomic(record.vault_path, Path(vault_root))
+        archive_moves = _planned_archive_restore_for_backup(record, runtime_paths)
+        _reject_conflicting_restore_targets(archive_moves)
+        archive_restored = False
+        try:
+            _restore_archive_moves(archive_moves)
+            archive_restored = True
+            if record.vault_path is not None:
+                if vault_root is None:
+                    raise ValueError("vault_root is required for vault restore")
+                _replace_directory_atomic(record.vault_path, Path(vault_root))
+        except Exception as restore_error:
+            if archive_restored:
+                try:
+                    _rollback_restored_archive_moves(archive_moves)
+                except Exception as rollback_error:
+                    raise RuntimeError(
+                        f"Restore failed ({restore_error}); "
+                        f"rollback also failed ({rollback_error})"
+                    ) from restore_error
+            raise
         return record
 
     config_target = Path(codex_config_path) if codex_config_path is not None else None
@@ -301,7 +357,90 @@ def _planned_archive_restore(
                     f"expected at {skill.archived_source_path}"
                 )
             moves.append((skill.archived_source_path, skill.source_path))
+    if moves:
+        _, targets = zip(*moves)
+        reject_path_collisions(tuple(targets), "archive restore target")
     return tuple(moves)
+
+
+def _validate_metadata_active_skill_root(record: BackupRecord) -> Path:
+    value = record.metadata.get("active_skill_root")
+    if not isinstance(value, str) or not value:
+        raise ValueError("metadata missing active_skill_root; cannot validate restore paths")
+    path = Path(value)
+    if not path.is_absolute():
+        raise ValueError(f"active_skill_root must be absolute: {value!r}")
+    return path.resolve(strict=False)
+
+
+def _planned_archive_restore_for_backup(
+    record: BackupRecord,
+    runtime_paths: RuntimePaths,
+) -> tuple[tuple[Path, Path], ...]:
+    entries = record.metadata.get("archive_restore_entries")
+    if entries is None:
+        return _planned_archive_restore(runtime_paths)
+    if not isinstance(entries, list):
+        raise ValueError("archive_restore_entries must be a list")
+
+    active_skill_root = _validate_metadata_active_skill_root(record)
+
+    moves: list[tuple[Path, Path]] = []
+    target_keys: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError("archive restore entry must be a table")
+        pack_id = _safe_metadata_component(entry.get("pack_id"), "pack_id")
+        skill_name = _safe_metadata_component(entry.get("skill_name"), "skill_name")
+        archive_path = _required_metadata_path(entry.get("archive_path"), "archive_path")
+        source_path = _required_metadata_path(entry.get("source_path"), "source_path")
+        # Validate paths resolve to expected locations
+        expected_source = active_skill_root / skill_name
+        expected_archive = active_skill_root / ARCHIVE_DIR_NAME / pack_id / skill_name
+        if source_path.resolve(strict=False) != expected_source.resolve(strict=False):
+            raise ValueError(
+                f"metadata source_path {source_path} does not match expected {expected_source}"
+            )
+        if archive_path.resolve(strict=False) != expected_archive.resolve(strict=False):
+            raise ValueError(
+                f"metadata archive_path {archive_path} does not match expected {expected_archive}"
+            )
+        target_key = cross_platform_path_key(source_path)
+        if target_key in target_keys:
+            raise ValueError("archive restore target collision")
+        target_keys.add(target_key)
+        if not archive_path.is_dir():
+            raise ValueError(
+                f"archive entry missing for {pack_id}/{skill_name}; expected at {archive_path}"
+            )
+        moves.append((archive_path, source_path))
+    return tuple(moves)
+
+
+def _safe_metadata_component(value: Any, label: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"archive restore entry {label} must be a string")
+    try:
+        return safe_component(value, label)
+    except ValueError as error:
+        raise ValueError(f"unsafe archive restore entry {label}: {value}") from error
+
+
+def _required_metadata_path(value: Any, label: str) -> Path:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"archive restore entry {label} must be a path string")
+    return Path(value)
+
+
+def _reject_conflicting_restore_targets(
+    moves: tuple[tuple[Path, Path], ...],
+) -> None:
+    conflicting = sorted(str(t) for _, t in moves if t.exists() or t.is_symlink())
+    if conflicting:
+        raise ValueError(
+            f"cannot restore: {len(conflicting)} target(s) already exist: "
+            + "; ".join(conflicting)
+        )
 
 
 def _restore_archive_moves(moves: tuple[tuple[Path, Path], ...]) -> None:
@@ -325,6 +464,11 @@ def _restore_archive_moves(moves: tuple[tuple[Path, Path], ...]) -> None:
     except Exception:
         rollback_archive_moves(tuple(journal))
         raise
+
+
+def _rollback_restored_archive_moves(moves: tuple[tuple[Path, Path], ...]) -> None:
+    rollback_moves = tuple((target, source) for source, target in moves)
+    _restore_archive_moves(rollback_moves)
 
 
 def _reserve_backup_id(backups_root: Path, created_at: datetime) -> str:
@@ -371,15 +515,9 @@ def _read_backup_record(metadata_path: Path) -> BackupRecord:
 
 
 def _validate_metadata_backup_id(backup_id: str, metadata_path: Path) -> None:
+    safe_backup_id = safe_component(backup_id, "backup_id")
     backup_dir_name = metadata_path.parent.name
-    if (
-        not backup_id
-        or backup_id in {".", ".."}
-        or Path(backup_id).is_absolute()
-        or "/" in backup_id
-        or "\\" in backup_id
-        or backup_id != backup_dir_name
-    ):
+    if safe_backup_id != backup_dir_name:
         raise ValueError(
             f"Backup metadata backup_id must be one safe path component matching {backup_dir_name!r}: "
             f"{backup_id!r}"
@@ -411,15 +549,7 @@ def _find_backup(runtime_paths: RuntimePaths, backup_id: str) -> BackupRecord:
 
 
 def _validate_backup_id_component(backup_id: str) -> None:
-    if (
-        not backup_id
-        or backup_id in {".", ".."}
-        or Path(backup_id).is_absolute()
-        or "/" in backup_id
-        or "\\" in backup_id
-        or Path(backup_id).name != backup_id
-    ):
-        raise ValueError(f"unsafe backup_id: {backup_id}")
+    safe_component(backup_id, "backup_id")
 
 
 def _replace_file_atomic(source: Path, target: Path) -> None:

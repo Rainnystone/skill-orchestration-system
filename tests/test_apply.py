@@ -195,7 +195,8 @@ def test_apply_restores_preexisting_writes_when_config_write_fails(
     preexisting_manifest = runtime_paths.packs / "apify.toml"
     write_toml(preexisting_manifest, {"id": "old-apify"})
     preexisting_registry = runtime_paths.state / "registry.toml"
-    write_toml(preexisting_registry, {"active_pointers": ["old-pointer"]})
+    existing_registry = {"active_pointers": ["sos-haruhi", "sos-apify"]}
+    write_toml(preexisting_registry, existing_registry)
     preexisting_haruhi = active_root / "sos-haruhi" / "SKILL.md"
     preexisting_haruhi.parent.mkdir(parents=True)
     preexisting_haruhi.write_text("old haruhi\n", encoding="utf-8")
@@ -223,7 +224,7 @@ def test_apply_restores_preexisting_writes_when_config_write_fails(
     assert codex_config_path.read_text(encoding="utf-8") == original_config_text
     assert (preexisting_vault / "SKILL.md").read_text(encoding="utf-8") == "old vault\n"
     assert read_toml(preexisting_manifest) == {"id": "old-apify"}
-    assert read_toml(preexisting_registry) == {"active_pointers": ["old-pointer"]}
+    assert read_toml(preexisting_registry) == existing_registry
     assert preexisting_haruhi.read_text(encoding="utf-8") == "old haruhi\n"
     assert preexisting_apify.read_text(encoding="utf-8") == "old apify\n"
     assert (source / "SKILL.md").is_file()
@@ -534,6 +535,48 @@ def _write_config(config_path: Path, *skill_md_paths: Path) -> None:
     write_toml(config_path, data)
 
 
+def _tampered_manifest_plan(
+    runtime_paths: RuntimePaths,
+    *,
+    pack_id: str,
+    pointer_skill: str,
+    skill_name: str,
+    source_path: Path,
+) -> WritePlan:
+    return WritePlan(
+        plan_id="tampered-manifest-test",
+        pack_ids=(pack_id,),
+        host="codex",
+        operations=(
+            WriteOperation(
+                OperationKind.WRITE_MANIFEST,
+                target=runtime_paths.packs / f"{pack_id}.toml",
+                metadata={
+                    "manifest": {
+                        "id": pack_id,
+                        "display_name": pack_id.title(),
+                        "aliases": [],
+                        "description": "",
+                        "pointer_skill": pointer_skill,
+                        "sync_policy": "clean-auto",
+                        "host": "codex",
+                        "skills": [
+                            {
+                                "name": skill_name,
+                                "source_path": str(source_path),
+                                "vault_path": str(
+                                    runtime_paths.vault / pack_id / skill_name
+                                ),
+                            }
+                        ],
+                        "triggers": [{"term": skill_name, "reason": "test"}],
+                    }
+                },
+            ),
+        ),
+    )
+
+
 def test_write_config_produces_valid_toml_on_all_platforms(tmp_path: Path):
     source = _write_skill(tmp_path, "apify-actor-development")
     config_path = tmp_path / "config.toml"
@@ -676,3 +719,310 @@ def test_claude_apply_saves_manifest_with_host_field(tmp_path):
     assert apply_result.status == "applied"
     manifest = load_pack_manifest(runtime_paths.packs / "demo.toml")
     assert manifest.host == "claude"
+
+
+def test_claude_apply_failure_does_not_persist_archive_restore_entries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "demo-skill")
+    runtime_paths = _runtime_paths(tmp_path)
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n", encoding="utf-8")
+    plan = build_pack_apply_plan(
+        runtime_paths,
+        active_root,
+        codex_config_path,
+        (PackProposal(pack_id="demo", skill_names=("demo-skill",), reason="t"),),
+        host="claude",
+    )
+
+    def fail_save_manifest(*_args, **_kwargs) -> None:
+        raise RuntimeError("manifest write failed")
+
+    monkeypatch.setattr(apply_module, "save_pack_manifest", fail_save_manifest)
+
+    result = apply_write_plan(
+        plan,
+        runtime_paths,
+        codex_config_path,
+        active_root,
+        apply=True,
+        host="claude",
+    )
+
+    assert result.status == "failed"
+    assert result.backup_id is not None
+    assert "manifest write failed" in result.message
+    metadata = read_toml(
+        runtime_paths.backups / result.backup_id / "metadata.toml"
+    )
+    assert "archive_restore_entries" not in metadata
+    assert (active_root / "demo-skill" / "SKILL.md").is_file()
+    assert not (active_root / ".sos-archive" / "demo" / "demo-skill").exists()
+
+
+def test_apply_rejects_skill_names_colliding_across_manifests(tmp_path: Path):
+    """When two manifests have skill names that collide by casefold, the
+    apply validator must reject the tampered plan."""
+    from sos.models import WritePlan, WriteOperation, OperationKind
+
+    active_root = tmp_path / "active"
+    source = _write_skill(active_root, "alpha")
+    runtime_paths = _runtime_paths(tmp_path)
+
+    plan = WritePlan(
+        plan_id="collision-test",
+        pack_ids=("pack-a", "pack-b"),
+        host="codex",
+        operations=(
+            WriteOperation(
+                OperationKind.WRITE_MANIFEST,
+                target=runtime_paths.packs / "pack-a.toml",
+                metadata={
+                    "manifest": {
+                        "id": "pack-a",
+                        "display_name": "Pack A",
+                        "aliases": [],
+                        "description": "",
+                        "pointer_skill": "sos-pack-a",
+                        "sync_policy": "clean-auto",
+                        "host": "codex",
+                        "skills": [{
+                            "name": "alpha",
+                            "source_path": str(source),
+                            "vault_path": str(runtime_paths.vault / "pack-a" / "alpha"),
+                        }],
+                        "triggers": [{"term": "alpha", "reason": "test"}],
+                    }
+                },
+            ),
+            WriteOperation(
+                OperationKind.WRITE_MANIFEST,
+                target=runtime_paths.packs / "pack-b.toml",
+                metadata={
+                    "manifest": {
+                        "id": "pack-b",
+                        "display_name": "Pack B",
+                        "aliases": [],
+                        "description": "",
+                        "pointer_skill": "sos-pack-b",
+                        "sync_policy": "clean-auto",
+                        "host": "codex",
+                        "skills": [{
+                            "name": "alpha",
+                            "source_path": str(source),
+                            "vault_path": str(runtime_paths.vault / "pack-b" / "alpha"),
+                        }],
+                        "triggers": [{"term": "alpha", "reason": "test"}],
+                    }
+                },
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="skill_name collision"):
+        apply_module._validated_manifests(plan, runtime_paths, active_root)
+
+
+def test_apply_rejects_pointer_skill_collisions(tmp_path: Path):
+    """When two manifests have pointer_skills that collide by casefold,
+    the apply validator must reject the plan."""
+    from sos.models import WritePlan, WriteOperation, OperationKind
+
+    active_root = tmp_path / "active"
+    sk_a = _write_skill(active_root, "skill-a")
+    sk_b = _write_skill(active_root, "skill-b")
+    runtime_paths = _runtime_paths(tmp_path)
+
+    plan = WritePlan(
+        plan_id="pointer-collision-test",
+        pack_ids=("pack-a", "pack-b"),
+        host="codex",
+        operations=(
+            WriteOperation(
+                OperationKind.WRITE_MANIFEST,
+                target=runtime_paths.packs / "pack-a.toml",
+                metadata={
+                    "manifest": {
+                        "id": "pack-a",
+                        "display_name": "Pack A",
+                        "aliases": [],
+                        "description": "",
+                        "pointer_skill": "sos-pack-a",
+                        "sync_policy": "clean-auto",
+                        "host": "codex",
+                        "skills": [{
+                            "name": "skill-a",
+                            "source_path": str(sk_a),
+                            "vault_path": str(runtime_paths.vault / "pack-a" / "skill-a"),
+                        }],
+                        "triggers": [{"term": "a", "reason": "test"}],
+                    }
+                },
+            ),
+            WriteOperation(
+                OperationKind.WRITE_MANIFEST,
+                target=runtime_paths.packs / "pack-b.toml",
+                metadata={
+                    "manifest": {
+                        "id": "pack-b",
+                        "display_name": "Pack B",
+                        "aliases": [],
+                        "description": "",
+                        "pointer_skill": "sos-PACK-A",
+                        "sync_policy": "clean-auto",
+                        "host": "codex",
+                        "skills": [{
+                            "name": "skill-b",
+                            "source_path": str(sk_b),
+                            "vault_path": str(runtime_paths.vault / "pack-b" / "skill-b"),
+                        }],
+                        "triggers": [{"term": "b", "reason": "test"}],
+                    }
+                },
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="pointer_skill collision"):
+        apply_module._validated_manifests(plan, runtime_paths, active_root)
+
+
+def test_apply_rejects_pointer_skill_colliding_with_companion(tmp_path: Path):
+    active_root = tmp_path / "active"
+    source = _write_skill(active_root, "alpha")
+    runtime_paths = _runtime_paths(tmp_path)
+    plan = _tampered_manifest_plan(
+        runtime_paths,
+        pack_id="haruhi",
+        pointer_skill="sos-haruhi",
+        skill_name="alpha",
+        source_path=source,
+    )
+
+    with pytest.raises(ValueError, match="active skill namespace collision"):
+        apply_module._validated_manifests(plan, runtime_paths, active_root)
+
+
+def test_apply_rejects_skill_name_colliding_with_manifest_pointer_skill(tmp_path: Path):
+    active_root = tmp_path / "active"
+    source = _write_skill(active_root, "sos-demo")
+    runtime_paths = _runtime_paths(tmp_path)
+    plan = _tampered_manifest_plan(
+        runtime_paths,
+        pack_id="demo",
+        pointer_skill="sos-demo",
+        skill_name="sos-demo",
+        source_path=source,
+    )
+
+    with pytest.raises(ValueError, match="active skill namespace collision"):
+        apply_module._validated_manifests(plan, runtime_paths, active_root)
+
+
+def test_apply_rejects_source_path_that_does_not_match_manifest_skill_name(
+    tmp_path: Path,
+):
+    active_root = tmp_path / "active"
+    source = _write_skill(active_root, "sos-demo")
+    runtime_paths = _runtime_paths(tmp_path)
+    plan = _tampered_manifest_plan(
+        runtime_paths,
+        pack_id="demo",
+        pointer_skill="sos-demo",
+        skill_name="alpha",
+        source_path=source,
+    )
+
+    with pytest.raises(ValueError, match="manifest source path does not match skill name"):
+        apply_module._validated_manifests(plan, runtime_paths, active_root)
+
+
+def test_apply_rejects_pointer_colliding_with_unmanaged_active_folder(tmp_path: Path):
+    active_root = tmp_path / "active"
+    source = _write_skill(active_root, "alpha")
+    runtime_paths = _runtime_paths(tmp_path)
+    codex_config_path = tmp_path / "config.toml"
+    _write_config(codex_config_path, source / "SKILL.md")
+    plan = build_pack_apply_plan(
+        runtime_paths,
+        active_root,
+        codex_config_path,
+        (
+            PackProposal(pack_id="demo", skill_names=("alpha",), reason="test"),
+        ),
+    )
+    _write_skill(active_root, "sos-demo")
+
+    with pytest.raises(ValueError, match="active skill namespace collision"):
+        apply_write_plan(
+            plan,
+            runtime_paths,
+            codex_config_path,
+            active_root,
+            apply=True,
+        )
+
+
+def test_apply_allows_registered_existing_pointer_folders_to_be_rewritten(
+    tmp_path: Path,
+):
+    active_root = tmp_path / "active"
+    source = _write_skill(active_root, "alpha")
+    runtime_paths = _runtime_paths(tmp_path)
+    codex_config_path = tmp_path / "config.toml"
+    _write_config(codex_config_path, source / "SKILL.md")
+    write_toml(
+        runtime_paths.state / "registry.toml",
+        {"active_pointers": ["sos-demo", "sos-haruhi"]},
+    )
+    demo_pointer = active_root / "sos-demo" / "SKILL.md"
+    demo_pointer.parent.mkdir(parents=True)
+    demo_pointer.write_text("old demo pointer\n", encoding="utf-8")
+    haruhi_pointer = active_root / "sos-haruhi" / "SKILL.md"
+    haruhi_pointer.parent.mkdir(parents=True)
+    haruhi_pointer.write_text("old haruhi pointer\n", encoding="utf-8")
+    plan = build_pack_apply_plan(
+        runtime_paths,
+        active_root,
+        codex_config_path,
+        (
+            PackProposal(pack_id="demo", skill_names=("alpha",), reason="test"),
+        ),
+    )
+
+    result = apply_write_plan(
+        plan,
+        runtime_paths,
+        codex_config_path,
+        active_root,
+        apply=True,
+    )
+
+    assert result.status == "applied"
+    assert read_toml(runtime_paths.state / "registry.toml")["active_pointers"] == [
+        "sos-haruhi",
+        "sos-demo",
+    ]
+    assert "old demo pointer" not in demo_pointer.read_text(encoding="utf-8")
+    assert "Pack id: `demo`" in demo_pointer.read_text(encoding="utf-8")
+    assert "old haruhi pointer" not in haruhi_pointer.read_text(encoding="utf-8")
+    assert "Registry:" in haruhi_pointer.read_text(encoding="utf-8")
+
+
+def test_apply_rejects_pointer_skill_that_does_not_match_pack_id(tmp_path: Path):
+    active_root = tmp_path / "active"
+    source = _write_skill(active_root, "alpha")
+    runtime_paths = _runtime_paths(tmp_path)
+    plan = _tampered_manifest_plan(
+        runtime_paths,
+        pack_id="demo",
+        pointer_skill="sos-other",
+        skill_name="alpha",
+        source_path=source,
+    )
+
+    with pytest.raises(ValueError, match="does not match expected sos-demo"):
+        apply_module._validated_manifests(plan, runtime_paths, active_root)

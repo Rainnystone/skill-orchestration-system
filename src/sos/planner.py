@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from sos._archive import ARCHIVE_DIR_NAME
+from sos.active_namespace import validate_active_skill_namespace
+from sos.manifest import load_registry
 from sos.models import (
     OperationKind,
     PackManifest,
@@ -15,6 +17,7 @@ from sos.models import (
     WritePlan,
 )
 from sos.paths import RuntimePaths
+from sos.path_safety import reject_component_collisions, safe_component
 from sos.propose import PackProposal
 from sos.scanner import read_skill_frontmatter
 from sos.skill_fs import validate_skill_folder
@@ -33,8 +36,8 @@ def build_pack_apply_plan(
         raise ValueError(f"unsupported host: {host}")
 
     proposal_tuple = tuple(proposals)
-    _validate_proposals(proposal_tuple)
     active_root = Path(active_skill_root)
+    _validate_proposals(proposal_tuple, runtime_paths, active_root)
     config_path = Path(codex_config_path)
     plan_id = _plan_id(runtime_paths, active_root, config_path, proposal_tuple, host)
     manifests = _pack_manifests(runtime_paths, active_root, proposal_tuple, host)
@@ -550,25 +553,40 @@ def _aliases(pack_id: str) -> tuple[str, ...]:
     return (pack_id,)
 
 
-def _validate_proposals(proposals: tuple[PackProposal, ...]) -> None:
+def _validate_proposals(
+    proposals: tuple[PackProposal, ...],
+    runtime_paths: RuntimePaths,
+    active_root: Path,
+) -> None:
+    all_skill_names: list[str] = []
     for proposal in proposals:
         _safe_component(proposal.pack_id, "pack_id")
         _pointer_skill(proposal.pack_id)
         for skill_name in proposal.skill_names:
             _safe_component(skill_name, "skill_name")
+            all_skill_names.append(skill_name)
+    pack_ids = tuple(proposal.pack_id for proposal in proposals)
+    reject_component_collisions(pack_ids, "pack_id")
+    reject_component_collisions(tuple(all_skill_names), "skill_name")
+    pointer_skills = tuple(f"sos-{proposal.pack_id}" for proposal in proposals)
+    reject_component_collisions(pointer_skills, "pointer_skill")
+    validate_active_skill_namespace(
+        active_root,
+        source_skill_names=tuple(all_skill_names),
+        pointer_skill_names=pointer_skills,
+        managed_pointer_names=_previous_active_pointers(runtime_paths),
+    )
+
+
+def _previous_active_pointers(runtime_paths: RuntimePaths) -> tuple[str, ...]:
+    registry_path = runtime_paths.state / "registry.toml"
+    if not registry_path.is_file():
+        return ()
+    return load_registry(registry_path).active_pointers
 
 
 def _safe_component(value: str, label: str) -> str:
-    if (
-        not value
-        or value in {".", ".."}
-        or Path(value).is_absolute()
-        or "/" in value
-        or "\\" in value
-        or Path(value).name != value
-    ):
-        raise ValueError(f"unsafe {label}: {value}")
-    return value
+    return safe_component(value, label)
 
 
 def _ensure_under(path: Path, root: Path, label: str) -> None:

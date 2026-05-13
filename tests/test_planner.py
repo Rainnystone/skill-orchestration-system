@@ -11,6 +11,7 @@ from sos.planner import (
     summarize_write_plan,
 )
 from sos.propose import PackProposal
+from sos.toml_io import write_toml
 
 
 def _write_skill(root: Path, name: str) -> Path:
@@ -503,4 +504,148 @@ def test_build_pack_apply_plan_rejects_unknown_host(tmp_path):
     with pytest.raises(ValueError, match="unsupported host"):
         build_pack_apply_plan(
             runtime_paths, skill_root, codex_config_path, (), host="gemini"
+        )
+
+
+def test_plan_rejects_pack_ids_that_collide_by_casefold(tmp_path: Path):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "alpha")
+    _write_skill(active_root, "beta")
+
+    with pytest.raises(ValueError, match="pack_id collision"):
+        build_pack_apply_plan(
+            _runtime_paths(tmp_path),
+            active_root,
+            tmp_path / "config.toml",
+            (
+                PackProposal(pack_id="Demo", skill_names=("alpha",), reason="test"),
+                PackProposal(pack_id="demo", skill_names=("beta",), reason="test"),
+            ),
+        )
+
+
+def test_plan_rejects_skill_names_colliding_across_proposals(tmp_path: Path):
+    """Two proposals with different pack_ids but skill_names that collide by
+    casefold must be rejected."""
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "alpha")
+
+    with pytest.raises(ValueError, match="skill_name collision"):
+        build_pack_apply_plan(
+            _runtime_paths(tmp_path),
+            active_root,
+            tmp_path / "config.toml",
+            (
+                PackProposal(pack_id="pack-a", skill_names=("alpha",), reason="test"),
+                PackProposal(pack_id="pack-b", skill_names=("Alpha",), reason="test"),
+            ),
+        )
+
+
+def test_plan_rejects_pack_id_whose_pointer_collides_with_companion(tmp_path: Path):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "alpha")
+
+    with pytest.raises(ValueError, match="active skill namespace collision"):
+        build_pack_apply_plan(
+            _runtime_paths(tmp_path),
+            active_root,
+            tmp_path / "config.toml",
+            (
+                PackProposal(pack_id="haruhi", skill_names=("alpha",), reason="test"),
+            ),
+        )
+
+
+def test_plan_rejects_skill_name_colliding_with_generated_pointer(tmp_path: Path):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "sos-demo")
+
+    with pytest.raises(ValueError, match="active skill namespace collision"):
+        build_pack_apply_plan(
+            _runtime_paths(tmp_path),
+            active_root,
+            tmp_path / "config.toml",
+            (
+                PackProposal(pack_id="demo", skill_names=("sos-demo",), reason="test"),
+            ),
+        )
+
+
+def test_plan_rejects_skill_name_colliding_with_companion_pointer(tmp_path: Path):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "sos-haruhi")
+
+    with pytest.raises(ValueError, match="active skill namespace collision"):
+        build_pack_apply_plan(
+            _runtime_paths(tmp_path),
+            active_root,
+            tmp_path / "config.toml",
+            (
+                PackProposal(pack_id="demo", skill_names=("sos-haruhi",), reason="test"),
+            ),
+        )
+
+
+def test_plan_rejects_pointer_colliding_with_unmanaged_active_folder(tmp_path: Path):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "alpha")
+    _write_skill(active_root, "sos-demo")
+
+    with pytest.raises(ValueError, match="active skill namespace collision"):
+        build_pack_apply_plan(
+            _runtime_paths(tmp_path),
+            active_root,
+            tmp_path / "config.toml",
+            (
+                PackProposal(pack_id="demo", skill_names=("alpha",), reason="test"),
+            ),
+        )
+
+
+def test_plan_allows_existing_pointer_folder_listed_in_registry(tmp_path: Path):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "alpha")
+    _write_skill(active_root, "sos-demo")
+    _write_skill(active_root, "sos-haruhi")
+    runtime_paths = _runtime_paths(tmp_path)
+    write_toml(
+        runtime_paths.state / "registry.toml",
+        {"active_pointers": ["sos-demo", "sos-haruhi"]},
+    )
+
+    plan = build_pack_apply_plan(
+        runtime_paths,
+        active_root,
+        tmp_path / "config.toml",
+        (
+            PackProposal(pack_id="demo", skill_names=("alpha",), reason="test"),
+        ),
+    )
+
+    assert plan.pack_ids == ("demo",)
+
+
+def test_plan_rejects_skill_names_that_collide_by_unicode_normalization(
+    tmp_path: Path,
+):
+    active_root = tmp_path / "active"
+    composed = "démo"
+    decomposed = "démo"
+    _write_skill(active_root, composed)
+    # decomposed form may collide on platforms that normalize at the fs level
+    (active_root / decomposed).mkdir(parents=True, exist_ok=True)
+
+    with pytest.raises(ValueError, match="skill_name collision"):
+        build_pack_apply_plan(
+            _runtime_paths(tmp_path),
+            active_root,
+            tmp_path / "config.toml",
+            (
+                PackProposal(
+                    pack_id="unicode",
+                    skill_names=(composed, decomposed),
+                    reason="test",
+                ),
+            ),
         )

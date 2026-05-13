@@ -853,13 +853,17 @@ def _annotate_backup_metadata(
     metadata = read_toml(metadata_path)
     next_metadata: dict[str, Any] = {
         **metadata,
-        "vault_root": str(runtime_paths.vault),
-        "active_skill_root": str(active_skill_root),
+        "vault_root": _metadata_path_value(runtime_paths.vault),
+        "active_skill_root": _metadata_path_value(active_skill_root),
         "host": host,
     }
     if host == "codex":
-        next_metadata["codex_config_path"] = str(codex_config_path)
+        next_metadata["codex_config_path"] = _metadata_path_value(codex_config_path)
     write_toml(metadata_path, next_metadata)
+
+
+def _metadata_path_value(path: Path) -> str:
+    return path.expanduser().resolve(strict=False).as_posix()
 
 
 def _manifest_path(runtime_paths: RuntimePaths, pack_id: str) -> Path:

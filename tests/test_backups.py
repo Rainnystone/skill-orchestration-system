@@ -195,6 +195,42 @@ def test_backup_metadata_paths_are_posix_on_all_platforms(tmp_path: Path):
         assert "\\" not in str(record.metadata["vault_snapshot_path"])
 
 
+def test_restore_claude_rejects_target_collisions_before_moving(tmp_path: Path):
+    runtime_paths, skill_root, codex_config_path, backup_id, metadata = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+    archive_one = skill_root / ".sos-archive" / "demo" / "demo-skill"
+    metadata["archive_restore_entries"] = [
+        {
+            "pack_id": "demo",
+            "skill_name": "demo-skill",
+            "archive_path": archive_one.as_posix(),
+            "source_path": (skill_root / "demo-skill").as_posix(),
+        },
+        {
+            "pack_id": "demo",
+            "skill_name": "demo-skill",
+            "archive_path": archive_one.as_posix(),
+            "source_path": (skill_root / "demo-skill").as_posix(),
+        },
+    ]
+    write_toml(runtime_paths.backups / backup_id / "metadata.toml", metadata)
+
+    with pytest.raises(ValueError, match="archive restore target collision"):
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )
+
+    assert archive_one.is_dir()
+    assert not (skill_root / "demo-skill").exists()
+
+
 def test_backup_with_posix_metadata_round_trips_through_restore(tmp_path: Path):
     runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
     config_path, vault_root = _write_config_and_vault(tmp_path, "enabled = true\n", "# Original\n")
@@ -229,6 +265,36 @@ def test_validate_backup_id_component_rejects_backslash():
     from sos.backups import _validate_backup_id_component
     with pytest.raises(ValueError, match="unsafe"):
         _validate_backup_id_component("..\\outside")
+
+
+@pytest.mark.parametrize(
+    "backup_id",
+    ("a:b", "CON.txt", "LPT1.md", "NUL.skill", "x.", "x "),
+)
+def test_validate_backup_id_component_rejects_windows_unsafe_names(backup_id: str):
+    with pytest.raises(ValueError, match="unsafe backup_id"):
+        backups._validate_backup_id_component(backup_id)
+
+
+def test_restore_backup_rejects_windows_unsafe_backup_id_before_lookup(tmp_path: Path):
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+
+    with pytest.raises(ValueError, match="unsafe backup_id"):
+        restore_backup(
+            runtime_paths,
+            "CON.txt",
+            codex_config_path=None,
+            vault_root=None,
+            apply=False,
+        )
+
+
+def test_validate_metadata_backup_id_rejects_windows_unsafe_name_without_filesystem_path():
+    with pytest.raises(ValueError, match="unsafe backup_id"):
+        backups._validate_metadata_backup_id(
+            "CON.txt",
+            Path("CON.txt") / "metadata.toml",
+        )
 
 
 def test_restore_claude_pack_moves_archive_back(tmp_path):
@@ -287,6 +353,156 @@ def test_restore_claude_pack_moves_archive_back(tmp_path):
     assert not archived.exists()
 
 
+def _write_claude_skill(skill_root: Path, name: str) -> None:
+    skill_dir = skill_root / name
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {name}\n---\n",
+        encoding="utf-8",
+    )
+
+
+def _apply_claude_pack(
+    tmp_path: Path,
+    *,
+    pack_id: str,
+    skill_name: str,
+):
+    from sos.apply import apply_write_plan
+    from sos.cli import _annotate_backup_metadata
+    from sos.planner import build_pack_apply_plan
+    from sos.propose import PackProposal
+    from sos.toml_io import read_toml
+
+    skill_root = tmp_path / "skills"
+    skill_root.mkdir(exist_ok=True)
+    _write_claude_skill(skill_root, skill_name)
+    runtime_paths = RuntimePaths.from_root(tmp_path / "runtime")
+    codex_config_path = tmp_path / "config.toml"
+    codex_config_path.write_text("model = \"x\"\n[skills]\nconfig = []\n", encoding="utf-8")
+    plan = build_pack_apply_plan(
+        runtime_paths,
+        skill_root,
+        codex_config_path,
+        (PackProposal(pack_id=pack_id, skill_names=(skill_name,), reason="test"),),
+        host="claude",
+    )
+    apply_result = apply_write_plan(
+        plan,
+        runtime_paths,
+        codex_config_path,
+        skill_root,
+        apply=True,
+        host="claude",
+    )
+    assert apply_result.status == "applied"
+    assert apply_result.backup_id is not None
+    _annotate_backup_metadata(
+        runtime_paths,
+        apply_result.backup_id,
+        codex_config_path,
+        skill_root,
+        "claude",
+    )
+    metadata_path = runtime_paths.backups / apply_result.backup_id / "metadata.toml"
+    return runtime_paths, skill_root, codex_config_path, apply_result.backup_id, read_toml(metadata_path)
+
+
+def test_claude_backup_metadata_records_archive_restore_entries(tmp_path: Path):
+    runtime_paths, skill_root, _, backup_id, metadata = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+
+    assert metadata["host"] == "claude"
+    assert metadata["vault_root"] == runtime_paths.vault.as_posix()
+    assert metadata["active_skill_root"] == skill_root.as_posix()
+    entries = metadata["archive_restore_entries"]
+    assert entries == [
+        {
+            "pack_id": "demo",
+            "skill_name": "demo-skill",
+            "archive_path": (skill_root / ".sos-archive" / "demo" / "demo-skill").as_posix(),
+            "source_path": (skill_root / "demo-skill").as_posix(),
+        }
+    ]
+    assert "\\" not in metadata["vault_root"]
+    assert "\\" not in metadata["active_skill_root"]
+    assert "\\" not in entries[0]["archive_path"]
+    assert "\\" not in entries[0]["source_path"]
+    assert (runtime_paths.backups / backup_id / "metadata.toml").is_file()
+
+
+def test_restore_claude_backup_uses_selected_backup_metadata_not_current_manifests(
+    tmp_path: Path,
+):
+    runtime_paths, skill_root, codex_config_path, backup_a, _ = _apply_claude_pack(
+        tmp_path,
+        pack_id="alpha",
+        skill_name="alpha-skill",
+    )
+    _, _, _, backup_b, _ = _apply_claude_pack(
+        tmp_path,
+        pack_id="beta",
+        skill_name="beta-skill",
+    )
+
+    beta_archive = skill_root / ".sos-archive" / "beta" / "beta-skill"
+    assert beta_archive.is_dir()
+    assert backup_a != backup_b
+
+    restore_backup(
+        runtime_paths,
+        backup_a,
+        codex_config_path,
+        runtime_paths.vault,
+        apply=True,
+    )
+
+    assert (skill_root / "alpha-skill" / "SKILL.md").is_file()
+    assert not (skill_root / ".sos-archive" / "alpha" / "alpha-skill").exists()
+    assert beta_archive.is_dir()
+    assert not (skill_root / "beta-skill").exists()
+
+
+def test_restore_claude_rolls_archive_back_when_vault_restore_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # Pre-create vault directory so the backup captures a vault snapshot
+    vault_dir = tmp_path / "runtime" / "vault"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    (vault_dir / "SKILL.md").write_text("# vault\n", encoding="utf-8")
+
+    runtime_paths, skill_root, codex_config_path, backup_id, _ = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+
+    original_replace_directory_atomic = backups._replace_directory_atomic
+
+    def fail_vault_restore(source: Path, target: Path) -> None:
+        if source == runtime_paths.backups / backup_id / "vault":
+            raise RuntimeError("vault restore failed")
+        original_replace_directory_atomic(source, target)
+
+    monkeypatch.setattr(backups, "_replace_directory_atomic", fail_vault_restore)
+
+    with pytest.raises(RuntimeError, match="vault restore failed"):
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )
+
+    assert not (skill_root / "demo-skill").exists()
+    assert (skill_root / ".sos-archive" / "demo" / "demo-skill" / "SKILL.md").is_file()
+
+
 def test_restore_refuses_when_archive_missing(tmp_path):
     """Restore should error if the .sos-archive entry is gone (user manually deleted it)."""
     import shutil
@@ -340,3 +556,245 @@ def test_restore_refuses_when_archive_missing(tmp_path):
             runtime_paths.vault,
             apply=True,
         )
+
+
+def test_restore_claude_legacy_backup_without_archive_entries_uses_manifest_fallback(
+    tmp_path: Path,
+):
+    from sos.toml_io import read_toml
+
+    runtime_paths, skill_root, codex_config_path, backup_id, _ = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+    metadata_path = runtime_paths.backups / backup_id / "metadata.toml"
+    metadata = read_toml(metadata_path)
+    metadata.pop("archive_restore_entries")
+    write_toml(metadata_path, metadata)
+
+    restore_backup(
+        runtime_paths,
+        backup_id,
+        codex_config_path,
+        runtime_paths.vault,
+        apply=True,
+    )
+
+    assert (skill_root / "demo-skill" / "SKILL.md").is_file()
+    assert not (skill_root / ".sos-archive" / "demo" / "demo-skill").exists()
+
+
+def test_restore_claude_rejects_metadata_source_path_that_does_not_match_expected(
+    tmp_path: Path,
+):
+    from sos.toml_io import write_toml
+
+    runtime_paths, skill_root, codex_config_path, backup_id, metadata = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+    metadata_path = runtime_paths.backups / backup_id / "metadata.toml"
+
+    # Test 1: Tamper source_path to point outside active skill root
+    tampered_source = dict(metadata)
+    entries = list(tampered_source["archive_restore_entries"])
+    entries[0] = dict(entries[0])
+    entries[0]["source_path"] = (tmp_path / "outside" / "evil").as_posix()
+    tampered_source["archive_restore_entries"] = entries
+    write_toml(metadata_path, tampered_source)
+
+    with pytest.raises(ValueError, match="does not match expected"):
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )
+
+    # Test 2: Tamper archive_path to point outside expected archive location
+    tampered_archive = dict(metadata)
+    entries2 = list(tampered_archive["archive_restore_entries"])
+    entries2[0] = dict(entries2[0])
+    entries2[0]["archive_path"] = (tmp_path / "outside" / "evil-archive").as_posix()
+    tampered_archive["archive_restore_entries"] = entries2
+    write_toml(metadata_path, tampered_archive)
+
+    with pytest.raises(ValueError, match="does not match expected"):
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )
+
+
+def test_restore_claude_rejects_when_target_already_exists(tmp_path: Path):
+    runtime_paths, skill_root, codex_config_path, backup_id, _ = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+    source_path = skill_root / "demo-skill"
+    # Recreate the skill directory that was moved to archive
+    source_path.mkdir(parents=True, exist_ok=True)
+    (source_path / "SKILL.md").write_text(
+        "---\nname: demo-skill\ndescription: recreated\n---\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="already exist"):
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )
+
+    # The recreated directory must NOT be destroyed by the preflight
+    assert source_path.is_dir()
+    assert (source_path / "SKILL.md").read_text(
+        encoding="utf-8"
+    ) == "---\nname: demo-skill\ndescription: recreated\n---\n"
+
+
+def test_restore_claude_rollback_double_failure_shows_combined_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # Pre-create vault directory so the backup captures a vault snapshot
+    vault_dir = tmp_path / "runtime" / "vault"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+    (vault_dir / "SKILL.md").write_text("# vault\n", encoding="utf-8")
+
+    runtime_paths, skill_root, codex_config_path, backup_id, _ = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+
+    def fail_vault_restore(source: Path, target: Path) -> None:
+        raise RuntimeError("vault restore failed")
+
+    def fail_rollback(moves: tuple[tuple[Path, Path], ...]) -> None:
+        raise RuntimeError("rollback failed")
+
+    monkeypatch.setattr(backups, "_replace_directory_atomic", fail_vault_restore)
+    monkeypatch.setattr(
+        backups, "_rollback_restored_archive_moves", fail_rollback
+    )
+
+    with pytest.raises(RuntimeError) as exc_info:
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )
+
+    msg = str(exc_info.value)
+    assert "vault restore failed" in msg
+    assert "rollback failed" in msg
+
+
+def test_legacy_restore_rejects_target_collisions(tmp_path: Path):
+    from sos.toml_io import read_toml, write_toml
+
+    # Set up two packs whose skills have source_paths colliding by casefold.
+    # Use _apply_claude_pack for each, then remove archive_restore_entries
+    # to force the legacy manifest fallback.
+
+    # Pack A: creates archive at .../pack-a/demo-skill, source = skills/demo-skill
+    runtime_paths, skill_root, codex_config_path, backup_a, meta_a = _apply_claude_pack(
+        tmp_path,
+        pack_id="pack-a",
+        skill_name="demo-skill",
+    )
+    # Pack B: creates archive at .../pack-b/DEMO-SKILL, source = skills/DEMO-SKILL
+    # source_path casefolds to same as demo-skill → collision
+    _, _, _, backup_b, meta_b = _apply_claude_pack(
+        tmp_path,
+        pack_id="pack-b",
+        skill_name="DEMO-SKILL",
+    )
+
+    # Use backup B's metadata but strip archive_restore_entries to force
+    # legacy fallback (reads both pack manifests from runtime_paths.packs)
+    meta_b.pop("archive_restore_entries")
+    write_toml(
+        runtime_paths.backups / backup_b / "metadata.toml",
+        meta_b,
+    )
+
+    with pytest.raises(ValueError, match="collision"):
+        restore_backup(
+            runtime_paths,
+            backup_b,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )
+
+
+def test_restore_rejects_relative_active_skill_root(tmp_path: Path):
+    """Tampered metadata with a relative active_skill_root must be rejected."""
+    from sos.toml_io import read_toml, write_toml
+
+    runtime_paths, skill_root, codex_config_path, backup_id, metadata = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+
+    tampered = dict(metadata)
+    tampered["active_skill_root"] = "skills"
+    write_toml(runtime_paths.backups / backup_id / "metadata.toml", tampered)
+
+    with pytest.raises(ValueError, match="must be absolute"):
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )
+
+
+def test_restore_rejects_broken_symlink_at_target(tmp_path: Path):
+    """A broken symlink at the restore target must be treated as conflicting."""
+    runtime_paths, skill_root, codex_config_path, backup_id, _ = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+    source_path = skill_root / "demo-skill"
+    # After apply, source_path is moved to archive; create a broken symlink there
+    assert not source_path.exists()
+    assert not source_path.is_symlink()
+    try:
+        source_path.symlink_to("/nonexistent")
+    except FileExistsError:
+        raise
+    except (OSError, NotImplementedError):
+        if source_path.exists() or source_path.is_symlink():
+            raise
+        pytest.skip("symlink creation unavailable")
+    assert source_path.is_symlink()
+    assert not source_path.exists()
+
+    with pytest.raises(ValueError, match="already exist"):
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )
+
+    # The broken symlink must survive the preflight
+    assert source_path.is_symlink()
