@@ -733,3 +733,31 @@ def test_restore_rejects_relative_active_skill_root(tmp_path: Path):
             runtime_paths.vault,
             apply=True,
         )
+
+
+def test_restore_rejects_broken_symlink_at_target(tmp_path: Path):
+    """A broken symlink at the restore target must be treated as conflicting."""
+    import os
+
+    runtime_paths, skill_root, codex_config_path, backup_id, _ = _apply_claude_pack(
+        tmp_path,
+        pack_id="demo",
+        skill_name="demo-skill",
+    )
+    source_path = skill_root / "demo-skill"
+    # After apply, source_path is moved to archive; create a broken symlink there
+    source_path.symlink_to("/nonexistent")
+    assert source_path.is_symlink()
+    assert not source_path.exists()
+
+    with pytest.raises(ValueError, match="already exist"):
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path,
+            runtime_paths.vault,
+            apply=True,
+        )
+
+    # The broken symlink must survive the preflight
+    assert source_path.is_symlink()

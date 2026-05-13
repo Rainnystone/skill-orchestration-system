@@ -431,7 +431,7 @@ def _required_metadata_path(value: Any, label: str) -> Path:
 def _reject_conflicting_restore_targets(
     moves: tuple[tuple[Path, Path], ...],
 ) -> None:
-    conflicting = sorted(str(t) for _, t in moves if t.exists())
+    conflicting = sorted(str(t) for _, t in moves if t.exists() or t.is_symlink())
     if conflicting:
         raise ValueError(
             f"cannot restore: {len(conflicting)} target(s) already exist: "
