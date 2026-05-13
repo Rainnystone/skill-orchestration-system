@@ -41,5 +41,5 @@ def reject_path_collisions(paths: tuple[Path, ...], label: str) -> None:
         key = cross_platform_path_key(path)
         existing = seen.get(key)
         if existing is not None and existing != path:
-            raise ValueError(f"{label} collision: {existing} and {path}")
+            raise ValueError(f"{label} collision: {existing!r} and {path!r}")
         seen[key] = path
