@@ -24,7 +24,11 @@ def safe_component(value: str, label: str) -> str:
         or Path(value).name != value
     ):
         raise ValueError(f"unsafe {label}: {value}")
-    if value.rstrip(". ").casefold() in _WINDOWS_RESERVED_NAMES:
+    if ":" in value:
+        raise ValueError(f"unsafe {label}: {value}")
+    trimmed = value.rstrip(". ")
+    stem = trimmed.split(".")[0]
+    if stem.casefold() in _WINDOWS_RESERVED_NAMES:
         raise ValueError(f"unsafe {label}: {value}")
     if value != value.rstrip(". "):
         raise ValueError(f"unsafe {label}: {value}")

@@ -73,3 +73,42 @@ def test_reject_component_collisions_rejects_pointer_skills():
     an explicit 'pointer_skill collision' message."""
     with pytest.raises(ValueError, match="pointer_skill collision"):
         reject_component_collisions(("sos-Demo", "sos-demo"), "pointer_skill")
+
+
+# ---------------------------------------------------------------------------
+# Fix 1: colon and reserved names with extensions in safe_component()
+# ---------------------------------------------------------------------------
+
+def test_safe_component_rejects_colon_in_name():
+    """Colon is illegal on NTFS and must be rejected."""
+    with pytest.raises(ValueError, match="unsafe x"):
+        safe_component("a:b", "x")
+
+
+def test_safe_component_rejects_reserved_name_with_extension():
+    """Reserved Windows names with extensions like CON.txt must be rejected."""
+    with pytest.raises(ValueError, match="unsafe x"):
+        safe_component("CON.txt", "x")
+
+
+def test_safe_component_rejects_lpt_with_extension():
+    """LPT1.md must be rejected as a reserved name with extension."""
+    with pytest.raises(ValueError, match="unsafe x"):
+        safe_component("LPT1.md", "x")
+
+
+def test_safe_component_rejects_nul_with_extension():
+    """NUL.skill must be rejected as a reserved name with extension."""
+    with pytest.raises(ValueError, match="unsafe x"):
+        safe_component("NUL.skill", "x")
+
+
+def test_safe_component_rejects_reserved_case_insensitive_with_extension():
+    """com1.backup must be rejected case-insensitively."""
+    with pytest.raises(ValueError, match="unsafe x"):
+        safe_component("com1.backup", "x")
+
+
+def test_safe_component_accepts_normal_name_with_extension():
+    """normal.txt is a safe name with extension and must be accepted."""
+    assert safe_component("normal.txt", "x") == "normal.txt"
