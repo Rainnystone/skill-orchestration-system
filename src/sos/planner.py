@@ -15,6 +15,7 @@ from sos.models import (
     WritePlan,
 )
 from sos.paths import RuntimePaths
+from sos.path_safety import reject_component_collisions, safe_component
 from sos.propose import PackProposal
 from sos.scanner import read_skill_frontmatter
 from sos.skill_fs import validate_skill_folder
@@ -556,19 +557,15 @@ def _validate_proposals(proposals: tuple[PackProposal, ...]) -> None:
         _pointer_skill(proposal.pack_id)
         for skill_name in proposal.skill_names:
             _safe_component(skill_name, "skill_name")
+        reject_component_collisions(tuple(proposal.skill_names), "skill_name")
+    pack_ids = tuple(proposal.pack_id for proposal in proposals)
+    reject_component_collisions(pack_ids, "pack_id")
+    pointer_skills = tuple(f"sos-{proposal.pack_id}" for proposal in proposals)
+    reject_component_collisions(pointer_skills, "pointer_skill")
 
 
 def _safe_component(value: str, label: str) -> str:
-    if (
-        not value
-        or value in {".", ".."}
-        or Path(value).is_absolute()
-        or "/" in value
-        or "\\" in value
-        or Path(value).name != value
-    ):
-        raise ValueError(f"unsafe {label}: {value}")
-    return value
+    return safe_component(value, label)
 
 
 def _ensure_under(path: Path, root: Path, label: str) -> None:

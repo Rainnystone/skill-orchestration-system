@@ -504,3 +504,45 @@ def test_build_pack_apply_plan_rejects_unknown_host(tmp_path):
         build_pack_apply_plan(
             runtime_paths, skill_root, codex_config_path, (), host="gemini"
         )
+
+
+def test_plan_rejects_pack_ids_that_collide_by_casefold(tmp_path: Path):
+    active_root = tmp_path / "active"
+    _write_skill(active_root, "alpha")
+    _write_skill(active_root, "beta")
+
+    with pytest.raises(ValueError, match="pack_id collision"):
+        build_pack_apply_plan(
+            _runtime_paths(tmp_path),
+            active_root,
+            tmp_path / "config.toml",
+            (
+                PackProposal(pack_id="Demo", skill_names=("alpha",), reason="test"),
+                PackProposal(pack_id="demo", skill_names=("beta",), reason="test"),
+            ),
+        )
+
+
+def test_plan_rejects_skill_names_that_collide_by_unicode_normalization(
+    tmp_path: Path,
+):
+    active_root = tmp_path / "active"
+    composed = "démo"
+    decomposed = "démo"
+    _write_skill(active_root, composed)
+    # decomposed form may collide on platforms that normalize at the fs level
+    (active_root / decomposed).mkdir(parents=True, exist_ok=True)
+
+    with pytest.raises(ValueError, match="skill_name collision"):
+        build_pack_apply_plan(
+            _runtime_paths(tmp_path),
+            active_root,
+            tmp_path / "config.toml",
+            (
+                PackProposal(
+                    pack_id="unicode",
+                    skill_names=(composed, decomposed),
+                    reason="test",
+                ),
+            ),
+        )
