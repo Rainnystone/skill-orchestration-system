@@ -537,6 +537,8 @@ def _handle_recommend_activate(args: argparse.Namespace) -> int:
         )
         return 0
     print(f"apply status: {result.status}")
+    if result.backup_id:
+        print(f"backup_id: {result.backup_id}")
     if result.message:
         print(f"message: {result.message}")
     return 0 if result.status == "applied" else 1

@@ -287,6 +287,7 @@ def test_workspace_activation_apply_rolls_back_on_asahina_render_failure(
 
     assert result.status == "failed"
     assert result.message == "boom"
+    assert result.backup_id is not None
     assert preexisting_nagato.read_text(encoding="utf-8") == "PREEXISTING NAGATO\n"
     assert not (workspace_skill_root / "sos-docs").exists()
 

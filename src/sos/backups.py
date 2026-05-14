@@ -117,12 +117,6 @@ def create_workspace_activation_backup(
     *,
     host: str = "codex",
 ) -> BackupRecord:
-    runtime_paths.backups.mkdir(parents=True, exist_ok=True)
-    created_at = datetime.now(UTC)
-    backup_id = _reserve_backup_id(runtime_paths.backups, created_at)
-    backup_dir = runtime_paths.backups / backup_id
-    backup_dir.mkdir(parents=True, exist_ok=False)
-
     safe_host = validate_host(host)
     workspace_root_path = Path(workspace_root)
     skill_parent_target = Path(workspace_skill_parent_root)
@@ -130,6 +124,12 @@ def create_workspace_activation_backup(
     expected_skill_parent = workspace_skill_parent_for_host(workspace_root_path, safe_host)
     if skill_parent_target.resolve(strict=False) != expected_skill_parent.resolve(strict=False):
         raise ValueError("workspace activation backup skill parent target mismatch")
+
+    runtime_paths.backups.mkdir(parents=True, exist_ok=True)
+    created_at = datetime.now(UTC)
+    backup_id = _reserve_backup_id(runtime_paths.backups, created_at)
+    backup_dir = runtime_paths.backups / backup_id
+    backup_dir.mkdir(parents=True, exist_ok=False)
     skill_parent_kind, skill_parent_snapshot = _snapshot_optional_path(
         skill_parent_target,
         backup_dir / WORKSPACE_AGENTS_SNAPSHOT,

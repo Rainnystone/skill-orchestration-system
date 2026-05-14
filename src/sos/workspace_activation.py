@@ -121,11 +121,13 @@ def apply_workspace_activation_plan(
             return ApplyResult(
                 status="failed",
                 operations=plan.operations,
+                backup_id=backup.backup_id,
                 message=f"{error}; rollback failed: {rollback_error}",
             )
         return ApplyResult(
             status="failed",
             operations=plan.operations,
+            backup_id=backup.backup_id,
             message=str(error),
         )
     finally:
