@@ -752,6 +752,13 @@ def _restore_config_rollback(
         target.unlink()
 
 
+def _safe_remove(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    elif path.exists() or path.is_symlink():
+        path.unlink()
+
+
 def _replace_directory_atomic(source: Path, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     temp_path = _reserved_sibling_temp_path(target, suffix=".tmp")
@@ -764,7 +771,7 @@ def _replace_directory_atomic(source: Path, target: Path) -> None:
             os.replace(target, backup_path)
         os.replace(temp_path, target)
         if backup_path is not None:
-            shutil.rmtree(backup_path)
+            _safe_remove(backup_path)
             backup_path = None
     except Exception:
         if backup_path is not None and backup_path.exists() and not target.exists():
@@ -775,7 +782,7 @@ def _replace_directory_atomic(source: Path, target: Path) -> None:
         if temp_path.exists():
             shutil.rmtree(temp_path)
         if backup_path is not None and backup_path.exists() and target.exists():
-            shutil.rmtree(backup_path)
+            _safe_remove(backup_path)
 
 
 def _reserved_sibling_temp_path(target_path: Path, suffix: str) -> Path:

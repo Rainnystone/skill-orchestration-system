@@ -1289,6 +1289,27 @@ def test_restore_workspace_activation_with_relative_workspace_root_in_metadata_c
     )
 
 
+def test_replace_directory_atomic_handles_file_target(tmp_path: Path):
+    """When the target is a file (not a directory), _replace_directory_atomic
+    must still replace it with the source directory and clean up correctly."""
+    from sos.backups import _replace_directory_atomic
+
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "SKILL.md").write_text("# Source Content\n", encoding="utf-8")
+
+    target = tmp_path / "target"
+    target.write_text("I am a file, not a directory\n", encoding="utf-8")
+
+    _replace_directory_atomic(source, target)
+
+    # target must now be a directory containing the source's content
+    assert target.is_dir()
+    assert (target / "SKILL.md").read_text(encoding="utf-8") == "# Source Content\n"
+    # No stale backup artifacts left behind
+    assert not any(p.suffix == ".bak" for p in tmp_path.iterdir())
+
+
 def test_restore_workspace_activation_rejects_snapshot_path_outside_backup_dir(
     tmp_path: Path,
 ):
