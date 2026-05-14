@@ -567,3 +567,17 @@ def test_workspace_activation_claude_apply_creates_restorable_backup_for_existin
 
     assert existing_nagato.read_text(encoding="utf-8") == "ORIGINAL CLAUDE NAGATO\n"
     assert learned_path.read_text(encoding="utf-8") == "ORIGINAL LEARNED\n"
+
+
+def test_readme_mentions_both_agents_and_claude_skill_paths():
+    readme_path = Path(__file__).resolve().parent.parent / "README.md"
+    text = readme_path.read_text(encoding="utf-8")
+    assert ".agents/skills" in text
+    assert ".claude/skills" in text
+
+
+def test_readme_cn_mentions_both_agents_and_claude_skill_paths():
+    readme_path = Path(__file__).resolve().parent.parent / "README_CN.md"
+    text = readme_path.read_text(encoding="utf-8")
+    assert ".agents/skills" in text
+    assert ".claude/skills" in text
