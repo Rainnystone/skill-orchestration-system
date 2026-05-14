@@ -101,6 +101,7 @@ def apply_workspace_activation_plan(
         validated.workspace_skill_root.parent,
         validated.learned_reference_target,
         reason="workspace activation apply",
+        host=effective_host,
     )
     snapshots, snapshot_root = _snapshot_targets(validated)
     try:

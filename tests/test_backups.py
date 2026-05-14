@@ -74,6 +74,62 @@ def test_restore_backup_apply_false_does_not_write(tmp_path: Path):
     assert (vault_root / "SKILL.md").read_text(encoding="utf-8") == "# Changed\n"
 
 
+def test_restore_legacy_workspace_activation_backup_without_host_restores_agents_tree(
+    tmp_path: Path,
+):
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    workspace_root = tmp_path / "workspace"
+    agents_root = workspace_root / ".agents"
+    learned_target = runtime_paths.state / "recommendations" / "asahina-reference.md"
+    backup_id = "backup-20260424T120000000000Z"
+    backup_dir = runtime_paths.backups / backup_id
+    workspace_snapshot = backup_dir / "workspace-agents"
+    learned_snapshot = backup_dir / "learned-reference.md"
+    (workspace_snapshot / "skills" / "sos-nagato").mkdir(parents=True)
+    (workspace_snapshot / "skills" / "sos-nagato" / "SKILL.md").write_text(
+        "LEGACY NAGATO\n",
+        encoding="utf-8",
+    )
+    learned_snapshot.parent.mkdir(parents=True, exist_ok=True)
+    learned_snapshot.write_text("LEGACY LEARNED\n", encoding="utf-8")
+    write_toml(
+        backup_dir / "metadata.toml",
+        {
+            "backup_id": backup_id,
+            "created_at": "2026-04-24T12:00:00+00:00",
+            "reason": "legacy workspace activation",
+            "scope": "workspace_activation",
+            "workspace_root": str(workspace_root),
+            "workspace_agents_target": str(agents_root),
+            "workspace_agents_kind": "dir",
+            "workspace_agents_snapshot_path": workspace_snapshot.as_posix(),
+            "learned_reference_target": str(learned_target),
+            "learned_reference_kind": "file",
+            "learned_reference_snapshot_path": learned_snapshot.as_posix(),
+        },
+    )
+    (agents_root / "skills" / "sos-nagato").mkdir(parents=True)
+    (agents_root / "skills" / "sos-nagato" / "SKILL.md").write_text(
+        "CURRENT NAGATO\n",
+        encoding="utf-8",
+    )
+    learned_target.parent.mkdir(parents=True)
+    learned_target.write_text("CURRENT LEARNED\n", encoding="utf-8")
+
+    restore_backup(
+        runtime_paths,
+        backup_id,
+        codex_config_path=None,
+        vault_root=None,
+        apply=True,
+    )
+
+    assert (agents_root / "skills" / "sos-nagato" / "SKILL.md").read_text(
+        encoding="utf-8"
+    ) == "LEGACY NAGATO\n"
+    assert learned_target.read_text(encoding="utf-8") == "LEGACY LEARNED\n"
+
+
 def test_restore_backup_rejects_unsafe_backup_id_before_reading_outside_metadata(
     tmp_path: Path,
 ):

@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from sos.host_paths import validate_host, workspace_skill_parent_for_host, workspace_skill_root_for_host
 from sos.models import BackupRecord, PackManifest
 from sos.paths import RuntimePaths
 from sos.toml_io import read_toml, write_toml
@@ -109,9 +110,11 @@ def _metadata_path_value(path: Path) -> str:
 def create_workspace_activation_backup(
     runtime_paths: RuntimePaths,
     workspace_root: str | Path,
-    workspace_agents_root: str | Path,
+    workspace_skill_parent_root: str | Path,
     learned_reference_target: str | Path,
     reason: str,
+    *,
+    host: str = "codex",
 ) -> BackupRecord:
     runtime_paths.backups.mkdir(parents=True, exist_ok=True)
     created_at = datetime.now(UTC)
@@ -119,11 +122,15 @@ def create_workspace_activation_backup(
     backup_dir = runtime_paths.backups / backup_id
     backup_dir.mkdir(parents=True, exist_ok=False)
 
+    safe_host = validate_host(host)
     workspace_root_path = Path(workspace_root)
-    agents_target = Path(workspace_agents_root)
+    skill_parent_target = Path(workspace_skill_parent_root)
     learned_target = Path(learned_reference_target)
-    agents_kind, agents_snapshot = _snapshot_optional_path(
-        agents_target,
+    expected_skill_parent = workspace_skill_parent_for_host(workspace_root_path, safe_host)
+    if skill_parent_target.resolve(strict=False) != expected_skill_parent.resolve(strict=False):
+        raise ValueError("workspace activation backup skill parent target mismatch")
+    skill_parent_kind, skill_parent_snapshot = _snapshot_optional_path(
+        skill_parent_target,
         backup_dir / WORKSPACE_AGENTS_SNAPSHOT,
     )
     learned_kind, learned_snapshot = _snapshot_optional_path(
@@ -135,14 +142,16 @@ def create_workspace_activation_backup(
         "created_at": created_at.isoformat(),
         "reason": reason,
         "scope": WORKSPACE_ACTIVATION_SCOPE,
+        "host": safe_host,
         "workspace_root": str(workspace_root_path),
-        "workspace_agents_target": str(agents_target),
-        "workspace_agents_kind": agents_kind,
+        "workspace_skill_parent_target": str(skill_parent_target),
+        "workspace_skill_parent_kind": skill_parent_kind,
+        "workspace_skill_root": str(workspace_skill_root_for_host(workspace_root_path, safe_host)),
         "learned_reference_target": str(learned_target),
         "learned_reference_kind": learned_kind,
     }
-    if agents_snapshot is not None:
-        metadata["workspace_agents_snapshot_path"] = agents_snapshot.as_posix()
+    if skill_parent_snapshot is not None:
+        metadata["workspace_skill_parent_snapshot_path"] = skill_parent_snapshot.as_posix()
     if learned_snapshot is not None:
         metadata["learned_reference_snapshot_path"] = learned_snapshot.as_posix()
     write_toml(backup_dir / METADATA_FILE, metadata)
@@ -255,19 +264,39 @@ def _restore_workspace_activation_backup(
     record: BackupRecord,
 ) -> None:
     metadata = record.metadata
+    host = str(metadata.get("host", "codex"))
+    safe_host = validate_host(host)
     workspace_root = Path(str(metadata["workspace_root"]))
-    agents_target = Path(str(metadata["workspace_agents_target"]))
+    skill_parent_target = Path(
+        str(
+            metadata.get(
+                "workspace_skill_parent_target",
+                metadata.get("workspace_agents_target"),
+            )
+        )
+    )
     learned_target = Path(str(metadata["learned_reference_target"]))
     _validate_workspace_activation_restore_targets(
         runtime_paths,
         workspace_root,
-        agents_target,
+        skill_parent_target,
         learned_target,
+        safe_host,
     )
     _restore_snapshot_by_kind(
-        kind=str(metadata["workspace_agents_kind"]),
-        snapshot_path=_optional_path(metadata.get("workspace_agents_snapshot_path")),
-        target=agents_target,
+        kind=str(
+            metadata.get(
+                "workspace_skill_parent_kind",
+                metadata.get("workspace_agents_kind"),
+            )
+        ),
+        snapshot_path=_optional_path(
+            metadata.get(
+                "workspace_skill_parent_snapshot_path",
+                metadata.get("workspace_agents_snapshot_path"),
+            )
+        ),
+        target=skill_parent_target,
     )
     _restore_snapshot_by_kind(
         kind=str(metadata["learned_reference_kind"]),
@@ -279,12 +308,13 @@ def _restore_workspace_activation_backup(
 def _validate_workspace_activation_restore_targets(
     runtime_paths: RuntimePaths,
     workspace_root: Path,
-    agents_target: Path,
+    skill_parent_target: Path,
     learned_target: Path,
+    host: str,
 ) -> None:
-    expected_agents = workspace_root / ".agents"
-    if agents_target.resolve(strict=False) != expected_agents.resolve(strict=False):
-        raise ValueError("workspace activation backup agents target mismatch")
+    expected_skill_parent = workspace_skill_parent_for_host(workspace_root, host)
+    if skill_parent_target.resolve(strict=False) != expected_skill_parent.resolve(strict=False):
+        raise ValueError("workspace activation backup skill parent target mismatch")
     expected_learned = (
         runtime_paths.state / "recommendations" / "asahina-reference.md"
     )
