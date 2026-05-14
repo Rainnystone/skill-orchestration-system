@@ -314,6 +314,7 @@ def test_workspace_activation_apply_removes_agents_skeleton_on_asahina_render_fa
 
     assert result.status == "failed"
     assert result.message == "boom"
+    assert result.backup_id is not None
     assert not (workspace_root / ".agents").exists()
     assert not (workspace_root / ".agents" / "skills").exists()
 
