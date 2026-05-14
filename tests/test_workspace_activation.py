@@ -104,6 +104,7 @@ def _retarget_workspace_plan(plan: WritePlan, workspace_skill_root: Path) -> Wri
         requires_apply=plan.requires_apply,
         delete_source_requested=plan.delete_source_requested,
         second_confirmation=plan.second_confirmation,
+        host=plan.host,
     )
 
 
@@ -383,3 +384,114 @@ def test_workspace_activation_plan_round_trips_with_new_operation_kinds(
         OperationKind.WRITE_WORKSPACE_SKILL,
         OperationKind.WRITE_LEARNED_REFERENCE_STUB,
     )
+
+
+def test_workspace_activation_claude_plan_targets_claude_skill_root_and_round_trips(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    plan_path = tmp_path / "claude-workspace-plan.toml"
+
+    plan = build_workspace_activation_plan(
+        runtime_paths,
+        workspace_root,
+        ("docs",),
+        host="claude",
+    )
+    serialize_write_plan(plan, plan_path)
+    loaded = load_write_plan(plan_path)
+
+    assert plan.host == "claude"
+    assert loaded.host == "claude"
+    skill_targets = tuple(
+        operation.target
+        for operation in loaded.operations
+        if operation.target is not None and operation.target.name == "SKILL.md"
+    )
+    assert skill_targets
+    for target in skill_targets:
+        if target.parent.name.startswith("sos-"):
+            assert workspace_root / ".claude" / "skills" in target.parents
+            assert workspace_root / ".agents" / "skills" not in target.parents
+
+
+def test_workspace_activation_claude_apply_writes_claude_project_skills_only(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    plan = build_workspace_activation_plan(
+        runtime_paths,
+        workspace_root,
+        ("docs",),
+        host="claude",
+    )
+
+    result = apply_workspace_activation_plan(
+        plan,
+        runtime_paths,
+        workspace_root=workspace_root,
+        host="claude",
+        apply=True,
+    )
+
+    claude_skill_root = workspace_root / ".claude" / "skills"
+    assert result.status == "applied"
+    assert (claude_skill_root / "sos-nagato" / "SKILL.md").is_file()
+    assert (claude_skill_root / "sos-asahina" / "SKILL.md").is_file()
+    assert (claude_skill_root / "sos-docs" / "SKILL.md").is_file()
+    assert not (workspace_root / ".agents").exists()
+
+
+def test_workspace_activation_apply_rejects_plan_host_mismatch_before_writing(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    plan = build_workspace_activation_plan(
+        runtime_paths,
+        workspace_root,
+        ("docs",),
+        host="claude",
+    )
+
+    with pytest.raises(ValueError, match="plan host"):
+        apply_workspace_activation_plan(
+            plan,
+            runtime_paths,
+            workspace_root=workspace_root,
+            host="codex",
+            apply=True,
+        )
+
+    assert not (workspace_root / ".claude").exists()
+    assert not (workspace_root / ".agents").exists()
+
+
+def test_workspace_activation_rejects_claude_plan_retargeted_to_agents_root(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    plan = build_workspace_activation_plan(
+        runtime_paths,
+        workspace_root,
+        ("docs",),
+        host="claude",
+    )
+    tampered_plan = _retarget_workspace_plan(
+        plan,
+        workspace_root / ".agents" / "skills",
+    )
+
+    with pytest.raises(ValueError, match="workspace activation plan must target workspace .claude skills root"):
+        apply_workspace_activation_plan(
+            tampered_plan,
+            runtime_paths,
+            workspace_root=workspace_root,
+            host="claude",
+            apply=True,
+        )
+
+    assert not (workspace_root / ".agents").exists()
