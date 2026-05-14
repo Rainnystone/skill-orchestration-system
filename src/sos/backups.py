@@ -328,7 +328,7 @@ def _parse_workspace_activation_restore_plan(
     raw_learned_snapshot = metadata.get("learned_reference_snapshot_path")
     learned_reference_snapshot_path = _optional_path(raw_learned_snapshot)
 
-    # Validate snapshot files exist for non-"missing" kinds
+    # Preflight check -- not atomic; the rollback is the real safety net.
     if skill_parent_kind != "missing" and skill_parent_snapshot_path is None:
         raise ValueError(
             "workspace activation backup missing skill parent snapshot path for non-missing kind"
@@ -337,11 +337,11 @@ def _parse_workspace_activation_restore_plan(
         raise ValueError(
             "workspace activation backup skill parent snapshot path does not exist"
         )
-    if learned_reference_kind not in ("missing",) and learned_reference_snapshot_path is None:
+    if learned_reference_kind != "missing" and learned_reference_snapshot_path is None:
         raise ValueError(
             "workspace activation backup missing learned reference snapshot path for non-missing kind"
         )
-    if learned_reference_kind not in ("missing",) and not learned_reference_snapshot_path.exists():
+    if learned_reference_kind != "missing" and not learned_reference_snapshot_path.exists():
         raise ValueError(
             "workspace activation backup learned reference snapshot path does not exist"
         )
@@ -391,12 +391,18 @@ def _restore_workspace_activation_backup(
                 snapshot_path=plan.learned_reference_snapshot_path,
                 target=plan.learned_reference_target,
             )
-        except Exception:
-            _restore_snapshot_by_kind(
-                kind=pre_skill_parent[0],
-                snapshot_path=pre_skill_parent[1],
-                target=plan.skill_parent_target,
-            )
+        except Exception as restore_error:
+            try:
+                _restore_snapshot_by_kind(
+                    kind=pre_skill_parent[0],
+                    snapshot_path=pre_skill_parent[1],
+                    target=plan.skill_parent_target,
+                )
+            except Exception as rollback_error:
+                raise RuntimeError(
+                    f"Workspace activation restore failed ({restore_error}); "
+                    f"rollback also failed ({rollback_error})"
+                ) from restore_error
             raise
     finally:
         shutil.rmtree(snapshot_root, ignore_errors=True)
