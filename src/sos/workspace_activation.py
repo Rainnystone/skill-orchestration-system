@@ -20,10 +20,6 @@ from sos.pointer import (
 )
 from sos.recommendation_store import ensure_learned_reference_stub, learned_reference_path
 
-_WORKSPACE_SKILL_ROOT_PARTS_BY_HOST = {
-    "codex": (".agents", "skills"),
-    "claude": (".claude", "skills"),
-}
 _WORKSPACE_SKILL_NAMES = ("sos-nagato", "sos-asahina")
 render_nagato_skill = render_workspace_nagato_skill
 render_pack_pointer = render_workspace_pack_pointer
@@ -306,14 +302,10 @@ def _validate_operation_kinds(operations: tuple[WriteOperation, ...]) -> None:
 def _workspace_skill_root_from_operation(operation: WriteOperation, host: str) -> Path:
     safe_host = validate_host(host)
     workspace_skill_root = Path(str(operation.metadata.get("workspace_skill_root", "")))
-    expected_parent, expected_name = _WORKSPACE_SKILL_ROOT_PARTS_BY_HOST[safe_host]
-    if workspace_skill_root.name != expected_name:
+    expected_root = workspace_skill_root_for_host(workspace_skill_root.parent.parent, safe_host)
+    if _normalized_path(workspace_skill_root) != _normalized_path(expected_root):
         raise ValueError(
-            f"workspace activation plan must target workspace {expected_parent} skills root"
-        )
-    if workspace_skill_root.parent.name != expected_parent:
-        raise ValueError(
-            f"workspace activation plan must target workspace {expected_parent} skills root"
+            f"workspace activation plan must target workspace {expected_root.parent.name} skills root"
         )
     metadata_host = operation.metadata.get("host")
     if metadata_host is not None and metadata_host != safe_host:
