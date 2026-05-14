@@ -469,6 +469,31 @@ def test_workspace_activation_apply_rejects_plan_host_mismatch_before_writing(
     assert not (workspace_root / ".agents").exists()
 
 
+def test_workspace_activation_apply_rejects_codex_plan_with_explicit_claude_host_before_writing(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    plan = build_workspace_activation_plan(
+        runtime_paths,
+        workspace_root,
+        ("docs",),
+        host="codex",
+    )
+
+    with pytest.raises(ValueError, match="plan host"):
+        apply_workspace_activation_plan(
+            plan,
+            runtime_paths,
+            workspace_root=workspace_root,
+            host="claude",
+            apply=True,
+        )
+
+    assert not (workspace_root / ".agents" / "skills" / "sos-nagato").exists()
+    assert not (workspace_root / ".claude" / "skills" / "sos-nagato").exists()
+
+
 def test_workspace_activation_rejects_claude_plan_retargeted_to_agents_root(
     tmp_path: Path,
 ):
