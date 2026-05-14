@@ -267,14 +267,16 @@ def _restore_workspace_activation_backup(
     host = str(metadata.get("host", "codex"))
     safe_host = validate_host(host)
     workspace_root = Path(str(metadata["workspace_root"]))
-    skill_parent_target = Path(
-        str(
-            metadata.get(
-                "workspace_skill_parent_target",
-                metadata.get("workspace_agents_target"),
-            )
-        )
+    raw_target = metadata.get(
+        "workspace_skill_parent_target",
+        metadata.get("workspace_agents_target"),
     )
+    if raw_target is None:
+        raise ValueError(
+            "backup metadata missing workspace_skill_parent_target "
+            "and legacy workspace_agents_target"
+        )
+    skill_parent_target = Path(str(raw_target))
     learned_target = Path(str(metadata["learned_reference_target"]))
     _validate_workspace_activation_restore_targets(
         runtime_paths,
@@ -283,19 +285,22 @@ def _restore_workspace_activation_backup(
         learned_target,
         safe_host,
     )
+    raw_kind = metadata.get(
+        "workspace_skill_parent_kind",
+        metadata.get("workspace_agents_kind"),
+    )
+    if raw_kind is None:
+        raise ValueError(
+            "backup metadata missing workspace_skill_parent_kind "
+            "and legacy workspace_agents_kind"
+        )
+    raw_snapshot = metadata.get(
+        "workspace_skill_parent_snapshot_path",
+        metadata.get("workspace_agents_snapshot_path"),
+    )
     _restore_snapshot_by_kind(
-        kind=str(
-            metadata.get(
-                "workspace_skill_parent_kind",
-                metadata.get("workspace_agents_kind"),
-            )
-        ),
-        snapshot_path=_optional_path(
-            metadata.get(
-                "workspace_skill_parent_snapshot_path",
-                metadata.get("workspace_agents_snapshot_path"),
-            )
-        ),
+        kind=str(raw_kind),
+        snapshot_path=_optional_path(raw_snapshot),
         target=skill_parent_target,
     )
     _restore_snapshot_by_kind(
