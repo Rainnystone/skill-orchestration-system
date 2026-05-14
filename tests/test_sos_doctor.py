@@ -81,11 +81,12 @@ def test_detect_returns_advisory_mode_without_backend(tmp_path):
     assert result["cwd"] == str(tmp_path.resolve())
 
 
-def test_detect_finds_repo_local_mode_from_nested_directory(tmp_path):
+def test_detect_finds_repo_local_mode_from_nested_directory(tmp_path, monkeypatch):
     repo = tmp_path / "skill-orchestration-system"
     nested = repo / "docs" / "plans"
     nested.mkdir(parents=True)
     _write_repo(repo)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
 
     result = detect(cwd=nested, cli_finder=lambda _: None)
 

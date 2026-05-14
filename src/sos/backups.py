@@ -166,9 +166,11 @@ def create_workspace_activation_backup(
         "learned_reference_kind": learned_kind,
     }
     if skill_parent_snapshot is not None:
-        metadata["workspace_skill_parent_snapshot_path"] = skill_parent_snapshot.as_posix()
+        metadata["workspace_skill_parent_snapshot_path"] = _metadata_path_value(
+            skill_parent_snapshot
+        )
     if learned_snapshot is not None:
-        metadata["learned_reference_snapshot_path"] = learned_snapshot.as_posix()
+        metadata["learned_reference_snapshot_path"] = _metadata_path_value(learned_snapshot)
     write_toml(backup_dir / METADATA_FILE, metadata)
 
     return BackupRecord(
@@ -341,9 +343,17 @@ def _parse_workspace_activation_restore_plan(
         metadata.get("workspace_agents_snapshot_path"),
     )
     skill_parent_snapshot_path = _optional_path(raw_snapshot)
+    if raw_snapshot is not None:
+        _require_absolute_metadata_path(
+            raw_snapshot, "workspace_skill_parent_snapshot_path"
+        )
 
     raw_learned_snapshot = metadata.get("learned_reference_snapshot_path")
     learned_reference_snapshot_path = _optional_path(raw_learned_snapshot)
+    if raw_learned_snapshot is not None:
+        _require_absolute_metadata_path(
+            raw_learned_snapshot, "learned_reference_snapshot_path"
+        )
 
     # Preflight check -- not atomic; the rollback is the real safety net.
     if skill_parent_kind != "missing" and skill_parent_snapshot_path is None:
@@ -372,6 +382,16 @@ def _parse_workspace_activation_restore_plan(
         _validate_snapshot_under_backup(
             learned_reference_snapshot_path, record.backup_id, runtime_paths.backups,
         )
+    _validate_snapshot_kind(
+        skill_parent_kind,
+        skill_parent_snapshot_path,
+        "workspace_skill_parent_snapshot_path",
+    )
+    _validate_snapshot_kind(
+        learned_reference_kind,
+        learned_reference_snapshot_path,
+        "learned_reference_snapshot_path",
+    )
 
     # Validate workspace_skill_root if present
     workspace_skill_root = None
@@ -727,6 +747,24 @@ def _validate_snapshot_under_backup(
         raise ValueError(
             f"snapshot path escapes backup directory: {snapshot_path}"
         )
+
+
+def _validate_snapshot_kind(kind: str, snapshot_path: Path | None, label: str) -> None:
+    if kind == "missing":
+        if snapshot_path is not None:
+            raise ValueError(f"snapshot kind mismatch for {label}: missing has snapshot")
+        return
+    if snapshot_path is None:
+        raise ValueError(f"snapshot kind mismatch for {label}: snapshot path missing")
+    if kind == "dir":
+        if not snapshot_path.is_dir():
+            raise ValueError(f"snapshot kind mismatch for {label}: expected directory")
+        return
+    if kind == "file":
+        if not snapshot_path.is_file():
+            raise ValueError(f"snapshot kind mismatch for {label}: expected file")
+        return
+    raise ValueError(f"unknown snapshot kind for {label}: {kind}")
 
 
 def _find_backup(runtime_paths: RuntimePaths, backup_id: str) -> BackupRecord:
