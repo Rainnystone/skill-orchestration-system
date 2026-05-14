@@ -130,6 +130,42 @@ def test_restore_legacy_workspace_activation_backup_without_host_restores_agents
     assert learned_target.read_text(encoding="utf-8") == "LEGACY LEARNED\n"
 
 
+def test_restore_workspace_activation_rejects_metadata_missing_target_keys(
+    tmp_path: Path,
+):
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    backup_id = "backup-20260424T120000000000Z"
+    backup_dir = runtime_paths.backups / backup_id
+    backup_dir.mkdir(parents=True)
+    write_toml(
+        backup_dir / "metadata.toml",
+        {
+            "backup_id": backup_id,
+            "created_at": "2026-04-24T12:00:00+00:00",
+            "reason": "corrupted",
+            "scope": "workspace_activation",
+            "workspace_root": str(workspace_root),
+            # Intentionally missing workspace_skill_parent_target AND workspace_agents_target
+            "workspace_skill_parent_kind": "missing",
+            "learned_reference_target": str(
+                runtime_paths.state / "recommendations" / "asahina-reference.md"
+            ),
+            "learned_reference_kind": "missing",
+        },
+    )
+
+    with pytest.raises(ValueError, match="missing workspace_skill_parent_target"):
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path=None,
+            vault_root=None,
+            apply=True,
+        )
+
+
 def test_restore_backup_rejects_unsafe_backup_id_before_reading_outside_metadata(
     tmp_path: Path,
 ):
