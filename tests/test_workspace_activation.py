@@ -490,8 +490,8 @@ def test_workspace_activation_apply_rejects_codex_plan_with_explicit_claude_host
             apply=True,
         )
 
-    assert not (workspace_root / ".agents" / "skills" / "sos-nagato").exists()
-    assert not (workspace_root / ".claude" / "skills" / "sos-nagato").exists()
+    assert not (workspace_root / ".agents").exists()
+    assert not (workspace_root / ".claude").exists()
 
 
 def test_workspace_activation_rejects_claude_plan_retargeted_to_agents_root(
