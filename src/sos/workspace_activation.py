@@ -9,6 +9,7 @@ from pathlib import Path
 
 from sos.apply import ApplyResult
 from sos.backups import create_workspace_activation_backup
+from sos.host_paths import validate_host, workspace_skill_root_for_host
 from sos.models import OperationKind, PackManifest, WriteOperation, WritePlan
 from sos.pack_inspect import list_pack_manifests
 from sos.paths import RuntimePaths
@@ -19,7 +20,6 @@ from sos.pointer import (
 )
 from sos.recommendation_store import ensure_learned_reference_stub, learned_reference_path
 
-_WORKSPACE_SKILL_ROOT_PARTS = (".agents", "skills")
 _WORKSPACE_SKILL_NAMES = ("sos-nagato", "sos-asahina")
 render_nagato_skill = render_workspace_nagato_skill
 render_pack_pointer = render_workspace_pack_pointer
@@ -48,24 +48,28 @@ def build_workspace_activation_plan(
     runtime_paths: RuntimePaths,
     workspace_root: str | Path,
     pack_ids: tuple[str, ...],
+    *,
+    host: str = "codex",
 ) -> WritePlan:
+    safe_host = validate_host(host)
     workspace_root_path = _workspace_root_path(workspace_root)
-    workspace_skill_root = workspace_root_path / ".agents" / "skills"
+    workspace_skill_root = workspace_skill_root_for_host(workspace_root_path, safe_host)
     manifests = _selected_manifests(runtime_paths, pack_ids)
     operations = (
-        _workspace_skill_operation(workspace_skill_root, "sos-nagato"),
-        *tuple(_pointer_operation(workspace_skill_root, manifest) for manifest in manifests),
-        _workspace_skill_operation(workspace_skill_root, "sos-asahina"),
+        _workspace_skill_operation(workspace_skill_root, "sos-nagato", safe_host),
+        *tuple(_pointer_operation(workspace_skill_root, manifest, safe_host) for manifest in manifests),
+        _workspace_skill_operation(workspace_skill_root, "sos-asahina", safe_host),
         WriteOperation(
             OperationKind.WRITE_LEARNED_REFERENCE_STUB,
             target=learned_reference_path(runtime_paths),
         ),
     )
     return WritePlan(
-        plan_id=_plan_id(runtime_paths, workspace_root_path, pack_ids),
+        plan_id=_plan_id(runtime_paths, workspace_root_path, pack_ids, safe_host),
         pack_ids=tuple(pack_ids),
         operations=operations,
         requires_apply=True,
+        host=safe_host,
     )
 
 
@@ -75,11 +79,18 @@ def apply_workspace_activation_plan(
     *,
     workspace_root: str | Path,
     apply: bool,
+    host: str | None = None,
 ) -> ApplyResult:
+    effective_host = plan.host if host is None else validate_host(host)
+    if effective_host != plan.host:
+        raise ValueError(
+            f"plan host {plan.host!r} does not match --host {effective_host!r}"
+        )
     validated = _validate_workspace_activation_plan(
         plan,
         runtime_paths,
         _workspace_root_path(workspace_root),
+        effective_host,
     )
     if not apply:
         return ApplyResult(status="planned", operations=plan.operations)
@@ -90,8 +101,17 @@ def apply_workspace_activation_plan(
         validated.workspace_skill_root.parent,
         validated.learned_reference_target,
         reason="workspace activation apply",
+        host=effective_host,
     )
-    snapshots, snapshot_root = _snapshot_targets(validated)
+    try:
+        snapshots, snapshot_root = _snapshot_targets(validated)
+    except Exception as error:
+        return ApplyResult(
+            status="failed",
+            operations=plan.operations,
+            backup_id=backup.backup_id,
+            message=f"snapshot failed: {error}",
+        )
     try:
         render_nagato_skill(
             validated.nagato_target,
@@ -109,11 +129,13 @@ def apply_workspace_activation_plan(
             return ApplyResult(
                 status="failed",
                 operations=plan.operations,
+                backup_id=backup.backup_id,
                 message=f"{error}; rollback failed: {rollback_error}",
             )
         return ApplyResult(
             status="failed",
             operations=plan.operations,
+            backup_id=backup.backup_id,
             message=str(error),
         )
     finally:
@@ -127,6 +149,23 @@ def apply_workspace_activation_plan(
 
 
 def _plan_id(
+    runtime_paths: RuntimePaths,
+    workspace_root: Path,
+    pack_ids: tuple[str, ...],
+    host: str,
+) -> str:
+    payload = {
+        "version": 1,
+        "host": host,
+        "runtime_root": str(runtime_paths.root),
+        "workspace_root": str(workspace_root),
+        "pack_ids": list(pack_ids),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"workspace-activation-{hashlib.sha256(encoded).hexdigest()[:16]}"
+
+
+def _legacy_codex_plan_id(
     runtime_paths: RuntimePaths,
     workspace_root: Path,
     pack_ids: tuple[str, ...],
@@ -161,7 +200,11 @@ def _selected_manifests(
     return tuple(selected)
 
 
-def _workspace_skill_operation(workspace_skill_root: Path, skill_name: str) -> WriteOperation:
+def _workspace_skill_operation(
+    workspace_skill_root: Path,
+    skill_name: str,
+    host: str,
+) -> WriteOperation:
     safe_skill_name = _safe_pointer_skill(skill_name)
     return WriteOperation(
         OperationKind.WRITE_WORKSPACE_SKILL,
@@ -169,11 +212,16 @@ def _workspace_skill_operation(workspace_skill_root: Path, skill_name: str) -> W
         metadata={
             "workspace_skill_root": str(workspace_skill_root),
             "skill_name": safe_skill_name,
+            "host": host,
         },
     )
 
 
-def _pointer_operation(workspace_skill_root: Path, manifest: PackManifest) -> WriteOperation:
+def _pointer_operation(
+    workspace_skill_root: Path,
+    manifest: PackManifest,
+    host: str,
+) -> WriteOperation:
     pointer_skill = _safe_pointer_skill(manifest.pointer_skill)
     return WriteOperation(
         OperationKind.WRITE_POINTER,
@@ -182,6 +230,7 @@ def _pointer_operation(workspace_skill_root: Path, manifest: PackManifest) -> Wr
             "workspace_skill_root": str(workspace_skill_root),
             "pack_id": manifest.id,
             "pointer_skill": pointer_skill,
+            "host": host,
         },
     )
 
@@ -190,7 +239,11 @@ def _validate_workspace_activation_plan(
     plan: WritePlan,
     runtime_paths: RuntimePaths,
     expected_workspace_root: Path,
+    host: str,
 ) -> _ValidatedWorkspacePlan:
+    safe_host = validate_host(host)
+    if plan.host != safe_host:
+        raise ValueError(f"plan host {plan.host!r} does not match --host {safe_host!r}")
     if not plan.requires_apply:
         raise ValueError("workspace activation plan must require apply")
 
@@ -199,11 +252,21 @@ def _validate_workspace_activation_plan(
         raise ValueError("workspace activation plan has unexpected operation count")
 
     _validate_operation_kinds(operations)
-    workspace_skill_root = _workspace_skill_root_from_operation(operations[0])
+    workspace_skill_root = _workspace_skill_root_from_operation(operations[0], safe_host)
     workspace_root = workspace_skill_root.parent.parent
     _validate_workspace_root_anchor(workspace_root, expected_workspace_root)
-    expected_plan_id = _plan_id(runtime_paths, workspace_root, plan.pack_ids)
-    if plan.plan_id != expected_plan_id:
+    expected_skill_root = workspace_skill_root_for_host(expected_workspace_root, safe_host)
+    if _normalized_path(workspace_skill_root) != _normalized_path(expected_skill_root):
+        raise ValueError(
+            f"workspace activation plan must target workspace {expected_skill_root.parent.name} skills root"
+        )
+    expected_plan_id = _plan_id(runtime_paths, workspace_root, plan.pack_ids, safe_host)
+    if plan.plan_id != expected_plan_id and not _matches_legacy_codex_plan_id(
+        plan,
+        runtime_paths,
+        workspace_root,
+        safe_host,
+    ):
         raise ValueError("workspace activation plan id mismatch")
     manifests = _selected_manifests(runtime_paths, plan.pack_ids)
 
@@ -211,17 +274,20 @@ def _validate_workspace_activation_plan(
         operations[0],
         workspace_skill_root,
         "sos-nagato",
+        host=safe_host,
     )
     pointer_operations = operations[1 : 1 + len(plan.pack_ids)]
     pointer_targets = _validate_pointer_operations(
         pointer_operations,
         workspace_skill_root,
         manifests,
+        host=safe_host,
     )
     asahina_target = _validate_workspace_skill_operation(
         operations[1 + len(plan.pack_ids)],
         workspace_skill_root,
         "sos-asahina",
+        host=safe_host,
     )
     learned_operation = operations[2 + len(plan.pack_ids)]
     learned_target = learned_reference_path(runtime_paths)
@@ -239,6 +305,20 @@ def _validate_workspace_activation_plan(
         manifests=manifests,
         learned_reference_target=learned_target,
     )
+
+
+def _matches_legacy_codex_plan_id(
+    plan: WritePlan,
+    runtime_paths: RuntimePaths,
+    workspace_root: Path,
+    host: str,
+) -> bool:
+    if host != "codex":
+        return False
+    if any("host" in operation.metadata for operation in plan.operations):
+        return False
+    expected_plan_id = _legacy_codex_plan_id(runtime_paths, workspace_root, plan.pack_ids)
+    return plan.plan_id == expected_plan_id
 
 
 def _validate_workspace_root_anchor(
@@ -264,12 +344,17 @@ def _validate_operation_kinds(operations: tuple[WriteOperation, ...]) -> None:
             raise ValueError(f"unexpected operation kind: {operation.kind}")
 
 
-def _workspace_skill_root_from_operation(operation: WriteOperation) -> Path:
+def _workspace_skill_root_from_operation(operation: WriteOperation, host: str) -> Path:
+    safe_host = validate_host(host)
     workspace_skill_root = Path(str(operation.metadata.get("workspace_skill_root", "")))
-    if workspace_skill_root.name != _WORKSPACE_SKILL_ROOT_PARTS[-1]:
-        raise ValueError("workspace activation plan must target workspace .agents skills root")
-    if workspace_skill_root.parent.name != _WORKSPACE_SKILL_ROOT_PARTS[0]:
-        raise ValueError("workspace activation plan must target workspace .agents skills root")
+    expected_root = workspace_skill_root_for_host(workspace_skill_root.parent.parent, safe_host)
+    if _normalized_path(workspace_skill_root) != _normalized_path(expected_root):
+        raise ValueError(
+            f"workspace activation plan must target workspace {expected_root.parent.name} skills root"
+        )
+    metadata_host = operation.metadata.get("host")
+    if metadata_host is not None and metadata_host != safe_host:
+        raise ValueError(f"workspace activation operation host mismatch: {metadata_host!r}")
     return workspace_skill_root
 
 
@@ -277,6 +362,8 @@ def _validate_workspace_skill_operation(
     operation: WriteOperation,
     workspace_skill_root: Path,
     expected_skill_name: str,
+    *,
+    host: str,
 ) -> Path:
     if operation.kind != OperationKind.WRITE_WORKSPACE_SKILL:
         raise ValueError(f"unexpected operation kind: {operation.kind}")
@@ -284,7 +371,7 @@ def _validate_workspace_skill_operation(
     safe_skill_name = _safe_pointer_skill(metadata_skill_name)
     if safe_skill_name != expected_skill_name:
         raise ValueError(f"unexpected workspace skill: {safe_skill_name}")
-    if _workspace_skill_root_from_operation(operation) != workspace_skill_root:
+    if _workspace_skill_root_from_operation(operation, host) != workspace_skill_root:
         raise ValueError("workspace skill root mismatch in operation metadata")
     target = _required_path(operation.target)
     _validate_workspace_skill_target(target, workspace_skill_root, safe_skill_name)
@@ -295,6 +382,8 @@ def _validate_pointer_operations(
     operations: tuple[WriteOperation, ...],
     workspace_skill_root: Path,
     manifests: tuple[PackManifest, ...],
+    *,
+    host: str,
 ) -> tuple[Path, ...]:
     if len(operations) != len(manifests):
         raise ValueError("workspace activation pointer operations do not match pack ids")
@@ -303,7 +392,7 @@ def _validate_pointer_operations(
     for operation, manifest in zip(operations, manifests, strict=True):
         if operation.kind != OperationKind.WRITE_POINTER:
             raise ValueError(f"unexpected operation kind: {operation.kind}")
-        if _workspace_skill_root_from_operation(operation) != workspace_skill_root:
+        if _workspace_skill_root_from_operation(operation, host) != workspace_skill_root:
             raise ValueError("workspace pointer root mismatch in operation metadata")
         pack_id = str(operation.metadata.get("pack_id", ""))
         if _safe_component(pack_id, "pack_id") != manifest.id:

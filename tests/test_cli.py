@@ -846,6 +846,166 @@ def test_recommend_record_selection_canonicalizes_duplicate_and_ordered_values(
     assert event_payload["selected_skill_names"] == ["documents"]
 
 
+def test_recommend_activation_plan_claude_host_and_activate_apply(
+    capsys,
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    (workspace_root / "README.md").write_text("# Docs workspace\n", encoding="utf-8")
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    plan_path = tmp_path / "claude-workspace-plan.toml"
+
+    plan_exit = main(
+        [
+            "recommend",
+            "activation-plan",
+            "--host",
+            "claude",
+            "--workspace-root",
+            str(workspace_root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--packs",
+            "docs",
+            "--out",
+            str(plan_path),
+        ]
+    )
+    capsys.readouterr()
+    activate_exit = main(
+        [
+            "recommend",
+            "activate",
+            "--host",
+            "claude",
+            "--plan",
+            str(plan_path),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--workspace-root",
+            str(workspace_root),
+            "--apply",
+        ]
+    )
+    activate_output = capsys.readouterr().out
+
+    claude_skills = workspace_root / ".claude" / "skills"
+    assert plan_exit == 0
+    assert activate_exit == 0
+    assert "apply status: applied" in activate_output
+    assert (claude_skills / "sos-nagato" / "SKILL.md").is_file()
+    assert (claude_skills / "sos-asahina" / "SKILL.md").is_file()
+    assert (claude_skills / "sos-docs" / "SKILL.md").is_file()
+    assert not (workspace_root / ".agents").exists()
+
+
+def test_recommend_activate_uses_plan_host_when_host_argument_is_omitted(
+    capsys,
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    plan_path = tmp_path / "claude-workspace-plan.toml"
+    assert main(
+        [
+            "recommend",
+            "activation-plan",
+            "--host",
+            "claude",
+            "--workspace-root",
+            str(workspace_root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--packs",
+            "docs",
+            "--out",
+            str(plan_path),
+        ]
+    ) == 0
+    capsys.readouterr()
+
+    activate_exit = main(
+        [
+            "recommend",
+            "activate",
+            "--plan",
+            str(plan_path),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--workspace-root",
+            str(workspace_root),
+            "--apply",
+        ]
+    )
+
+    assert activate_exit == 0
+    assert (workspace_root / ".claude" / "skills" / "sos-nagato" / "SKILL.md").is_file()
+
+
+def test_recommend_activate_rejects_explicit_host_mismatch_before_writing(
+    capsys,
+    tmp_path: Path,
+):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_paths, _ = _write_runtime_pack(
+        tmp_path / ".sos",
+        pack_id="docs",
+        skill_name="documents",
+        skill_description="Create and edit docx documents.",
+    )
+    plan_path = tmp_path / "claude-workspace-plan.toml"
+    assert main(
+        [
+            "recommend",
+            "activation-plan",
+            "--host",
+            "claude",
+            "--workspace-root",
+            str(workspace_root),
+            "--runtime-root",
+            str(runtime_paths.root),
+            "--packs",
+            "docs",
+            "--out",
+            str(plan_path),
+        ]
+    ) == 0
+    capsys.readouterr()
+
+    with pytest.raises(ValueError, match="plan host"):
+        main(
+            [
+                "recommend",
+                "activate",
+                "--host",
+                "codex",
+                "--plan",
+                str(plan_path),
+                "--runtime-root",
+                str(runtime_paths.root),
+                "--workspace-root",
+                str(workspace_root),
+                "--apply",
+            ]
+        )
+
+    assert not (workspace_root / ".claude").exists()
+    assert not (workspace_root / ".agents").exists()
+
+
 def test_recommend_activate_apply_returns_nonzero_on_failed_apply(
     capsys,
     monkeypatch: pytest.MonkeyPatch,
@@ -900,6 +1060,7 @@ def test_recommend_activate_apply_returns_nonzero_on_failed_apply(
     assert exit_code == 1
     assert "apply status: failed" in captured.out
     assert "message: boom" in captured.out
+    assert "backup_id:" in captured.out
 
 
 def test_recommend_record_selection_rejects_empty_packs_and_skills(tmp_path: Path):

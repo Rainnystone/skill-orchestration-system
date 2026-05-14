@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -21,6 +23,7 @@ from sos.recommendation_store import (
     ASAHINA_EMPTY_REFERENCE,
     learned_reference_path,
 )
+from sos.toml_io import read_toml, write_toml
 from sos.workspace_activation import (
     apply_workspace_activation_plan,
     build_workspace_activation_plan,
@@ -104,7 +107,39 @@ def _retarget_workspace_plan(plan: WritePlan, workspace_skill_root: Path) -> Wri
         requires_apply=plan.requires_apply,
         delete_source_requested=plan.delete_source_requested,
         second_confirmation=plan.second_confirmation,
+        host=plan.host,
     )
+
+
+def _legacy_codex_workspace_activation_plan_id(
+    runtime_paths: RuntimePaths,
+    workspace_root: Path,
+    pack_ids: tuple[str, ...],
+) -> str:
+    payload = {
+        "version": 1,
+        "runtime_root": str(runtime_paths.root),
+        "workspace_root": str(workspace_root),
+        "pack_ids": list(pack_ids),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"workspace-activation-{hashlib.sha256(encoded).hexdigest()[:16]}"
+
+
+def _strip_operation_host_metadata(plan: WritePlan) -> tuple[WriteOperation, ...]:
+    operations: list[WriteOperation] = []
+    for operation in plan.operations:
+        metadata = dict(operation.metadata)
+        metadata.pop("host", None)
+        operations.append(
+            WriteOperation(
+                operation.kind,
+                source=operation.source,
+                target=operation.target,
+                metadata=metadata,
+            )
+        )
+    return tuple(operations)
 
 
 def test_workspace_activation_dry_run_does_not_create_workspace_or_recommendation_dirs(
@@ -286,6 +321,7 @@ def test_workspace_activation_apply_rolls_back_on_asahina_render_failure(
 
     assert result.status == "failed"
     assert result.message == "boom"
+    assert result.backup_id is not None
     assert preexisting_nagato.read_text(encoding="utf-8") == "PREEXISTING NAGATO\n"
     assert not (workspace_skill_root / "sos-docs").exists()
 
@@ -312,6 +348,7 @@ def test_workspace_activation_apply_removes_agents_skeleton_on_asahina_render_fa
 
     assert result.status == "failed"
     assert result.message == "boom"
+    assert result.backup_id is not None
     assert not (workspace_root / ".agents").exists()
     assert not (workspace_root / ".agents" / "skills").exists()
 
@@ -383,3 +420,307 @@ def test_workspace_activation_plan_round_trips_with_new_operation_kinds(
         OperationKind.WRITE_WORKSPACE_SKILL,
         OperationKind.WRITE_LEARNED_REFERENCE_STUB,
     )
+
+
+def test_legacy_codex_workspace_activation_plan_without_host_can_still_apply(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    current_plan = build_workspace_activation_plan(
+        runtime_paths,
+        workspace_root,
+        ("docs",),
+        host="codex",
+    )
+    legacy_plan = WritePlan(
+        plan_id=_legacy_codex_workspace_activation_plan_id(
+            runtime_paths,
+            workspace_root,
+            ("docs",),
+        ),
+        pack_ids=current_plan.pack_ids,
+        operations=_strip_operation_host_metadata(current_plan),
+        requires_apply=True,
+    )
+    plan_path = tmp_path / "legacy-codex-workspace-plan.toml"
+    serialize_write_plan(legacy_plan, plan_path)
+    plan_data = read_toml(plan_path)
+    plan_data.pop("host", None)
+    write_toml(plan_path, plan_data)
+
+    loaded = load_write_plan(plan_path)
+    result = apply_workspace_activation_plan(
+        loaded,
+        runtime_paths,
+        workspace_root=workspace_root,
+        apply=True,
+    )
+
+    assert loaded.host == "codex"
+    assert result.status == "applied"
+    assert (workspace_root / ".agents" / "skills" / "sos-nagato" / "SKILL.md").is_file()
+    assert not (workspace_root / ".claude").exists()
+
+
+def test_current_codex_workspace_activation_plan_rejects_legacy_plan_id(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    current_plan = build_workspace_activation_plan(
+        runtime_paths,
+        workspace_root,
+        ("docs",),
+        host="codex",
+    )
+    tampered_plan = WritePlan(
+        plan_id=_legacy_codex_workspace_activation_plan_id(
+            runtime_paths,
+            workspace_root,
+            ("docs",),
+        ),
+        pack_ids=current_plan.pack_ids,
+        operations=current_plan.operations,
+        requires_apply=current_plan.requires_apply,
+        host=current_plan.host,
+    )
+
+    with pytest.raises(ValueError, match="workspace activation plan id mismatch"):
+        apply_workspace_activation_plan(
+            tampered_plan,
+            runtime_paths,
+            workspace_root=workspace_root,
+            apply=True,
+        )
+
+    assert not (workspace_root / ".agents").exists()
+
+
+def test_workspace_activation_claude_plan_targets_claude_skill_root_and_round_trips(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    plan_path = tmp_path / "claude-workspace-plan.toml"
+
+    plan = build_workspace_activation_plan(
+        runtime_paths,
+        workspace_root,
+        ("docs",),
+        host="claude",
+    )
+    serialize_write_plan(plan, plan_path)
+    loaded = load_write_plan(plan_path)
+
+    assert plan.host == "claude"
+    assert loaded.host == "claude"
+    skill_targets = tuple(
+        operation.target
+        for operation in loaded.operations
+        if operation.target is not None and operation.target.name == "SKILL.md"
+    )
+    assert skill_targets
+    for target in skill_targets:
+        if target.parent.name.startswith("sos-"):
+            assert workspace_root / ".claude" / "skills" in target.parents
+            assert workspace_root / ".agents" / "skills" not in target.parents
+
+
+def test_workspace_activation_claude_apply_writes_claude_project_skills_only(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    plan = build_workspace_activation_plan(
+        runtime_paths,
+        workspace_root,
+        ("docs",),
+        host="claude",
+    )
+
+    result = apply_workspace_activation_plan(
+        plan,
+        runtime_paths,
+        workspace_root=workspace_root,
+        host="claude",
+        apply=True,
+    )
+
+    claude_skill_root = workspace_root / ".claude" / "skills"
+    assert result.status == "applied"
+    assert (claude_skill_root / "sos-nagato" / "SKILL.md").is_file()
+    assert (claude_skill_root / "sos-asahina" / "SKILL.md").is_file()
+    assert (claude_skill_root / "sos-docs" / "SKILL.md").is_file()
+    assert not (workspace_root / ".agents").exists()
+
+
+def test_workspace_activation_apply_rejects_plan_host_mismatch_before_writing(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    plan = build_workspace_activation_plan(
+        runtime_paths,
+        workspace_root,
+        ("docs",),
+        host="claude",
+    )
+
+    with pytest.raises(ValueError, match="plan host"):
+        apply_workspace_activation_plan(
+            plan,
+            runtime_paths,
+            workspace_root=workspace_root,
+            host="codex",
+            apply=True,
+        )
+
+    assert not (workspace_root / ".claude").exists()
+    assert not (workspace_root / ".agents").exists()
+
+
+def test_workspace_activation_apply_rejects_codex_plan_with_explicit_claude_host_before_writing(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    plan = build_workspace_activation_plan(
+        runtime_paths,
+        workspace_root,
+        ("docs",),
+        host="codex",
+    )
+
+    with pytest.raises(ValueError, match="plan host"):
+        apply_workspace_activation_plan(
+            plan,
+            runtime_paths,
+            workspace_root=workspace_root,
+            host="claude",
+            apply=True,
+        )
+
+    assert not (workspace_root / ".agents").exists()
+    assert not (workspace_root / ".claude").exists()
+
+
+def test_workspace_activation_rejects_claude_plan_retargeted_to_agents_root(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    plan = build_workspace_activation_plan(
+        runtime_paths,
+        workspace_root,
+        ("docs",),
+        host="claude",
+    )
+    tampered_plan = _retarget_workspace_plan(
+        plan,
+        workspace_root / ".agents" / "skills",
+    )
+
+    with pytest.raises(ValueError, match="workspace activation plan must target workspace .claude skills root"):
+        apply_workspace_activation_plan(
+            tampered_plan,
+            runtime_paths,
+            workspace_root=workspace_root,
+            host="claude",
+            apply=True,
+        )
+
+    assert not (workspace_root / ".agents").exists()
+
+
+def test_workspace_activation_claude_apply_creates_restorable_backup_for_existing_targets(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    claude_skill_root = workspace_root / ".claude" / "skills"
+    existing_nagato = claude_skill_root / "sos-nagato" / "SKILL.md"
+    existing_nagato.parent.mkdir(parents=True, exist_ok=True)
+    existing_nagato.write_text("ORIGINAL CLAUDE NAGATO\n", encoding="utf-8")
+    learned_path = learned_reference_path(runtime_paths)
+    learned_path.parent.mkdir(parents=True, exist_ok=True)
+    learned_path.write_text("ORIGINAL LEARNED\n", encoding="utf-8")
+    plan = build_workspace_activation_plan(
+        runtime_paths,
+        workspace_root,
+        ("docs",),
+        host="claude",
+    )
+
+    result = apply_workspace_activation_plan(
+        plan,
+        runtime_paths,
+        workspace_root=workspace_root,
+        host="claude",
+        apply=True,
+    )
+    backups = list_backups(runtime_paths)
+
+    assert result.status == "applied"
+    assert len(backups) == 1
+    assert backups[0].metadata["scope"] == "workspace_activation"
+    assert backups[0].metadata["host"] == "claude"
+    assert backups[0].metadata["workspace_skill_root"] == claude_skill_root.as_posix()
+    assert existing_nagato.read_text(encoding="utf-8") != "ORIGINAL CLAUDE NAGATO\n"
+
+    restore_backup(
+        runtime_paths,
+        backups[0].backup_id,
+        codex_config_path=None,
+        vault_root=None,
+        apply=True,
+    )
+
+    assert existing_nagato.read_text(encoding="utf-8") == "ORIGINAL CLAUDE NAGATO\n"
+    assert learned_path.read_text(encoding="utf-8") == "ORIGINAL LEARNED\n"
+
+
+def test_workspace_activation_apply_returns_backup_id_when_snapshot_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    plan = build_workspace_activation_plan(runtime_paths, workspace_root, ("docs",))
+
+    def fail_snapshot(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("snapshot boom")
+
+    monkeypatch.setattr("sos.workspace_activation._snapshot_targets", fail_snapshot)
+
+    result = apply_workspace_activation_plan(
+        plan,
+        runtime_paths,
+        workspace_root=workspace_root,
+        apply=True,
+    )
+
+    assert result.status == "failed"
+    assert result.backup_id is not None
+    assert "snapshot failed" in result.message
+
+
+def test_activation_flow_doc_mentions_both_host_paths():
+    doc_path = Path(__file__).resolve().parent.parent / "references" / "activation-flow.md"
+    text = doc_path.read_text(encoding="utf-8")
+    assert ".agents/skills" in text
+    assert ".claude/skills" in text
+
+
+def test_readme_mentions_both_agents_and_claude_skill_paths():
+    readme_path = Path(__file__).resolve().parent.parent / "README.md"
+    text = readme_path.read_text(encoding="utf-8")
+    assert ".agents/skills" in text
+    assert ".claude/skills" in text
+
+
+def test_readme_cn_mentions_both_agents_and_claude_skill_paths():
+    readme_path = Path(__file__).resolve().parent.parent / "README_CN.md"
+    text = readme_path.read_text(encoding="utf-8")
+    assert ".agents/skills" in text
+    assert ".claude/skills" in text
