@@ -363,6 +363,16 @@ def _parse_workspace_activation_restore_plan(
             "workspace activation backup learned reference snapshot path does not exist"
         )
 
+    # Validate snapshot paths are contained within the backup directory.
+    if skill_parent_snapshot_path is not None:
+        _validate_snapshot_under_backup(
+            skill_parent_snapshot_path, record.backup_id, runtime_paths.backups,
+        )
+    if learned_reference_snapshot_path is not None:
+        _validate_snapshot_under_backup(
+            learned_reference_snapshot_path, record.backup_id, runtime_paths.backups,
+        )
+
     # Validate workspace_skill_root if present
     workspace_skill_root = None
     raw_skill_root = metadata.get("workspace_skill_root")
@@ -689,6 +699,20 @@ def _optional_path(value: Any) -> Path | None:
     if value is None:
         return None
     return Path(str(value))
+
+
+def _validate_snapshot_under_backup(
+    snapshot_path: Path,
+    backup_id: str,
+    backups_root: Path,
+) -> None:
+    """Assert that *snapshot_path* is contained within the backup directory."""
+    resolved_snapshot = snapshot_path.resolve(strict=False)
+    backup_dir = (backups_root / backup_id).resolve(strict=False)
+    if resolved_snapshot != backup_dir and not resolved_snapshot.is_relative_to(backup_dir):
+        raise ValueError(
+            f"snapshot path escapes backup directory: {snapshot_path}"
+        )
 
 
 def _find_backup(runtime_paths: RuntimePaths, backup_id: str) -> BackupRecord:

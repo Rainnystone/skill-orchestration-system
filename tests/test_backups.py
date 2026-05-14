@@ -1287,3 +1287,84 @@ def test_restore_workspace_activation_with_relative_workspace_root_in_metadata_c
     assert not wrong_agents.exists(), (
         "Restore must not create files in a wrong directory relative to cwd"
     )
+
+
+def test_restore_workspace_activation_rejects_snapshot_path_outside_backup_dir(
+    tmp_path: Path,
+):
+    """Tampered metadata pointing snapshot at external path must be rejected."""
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    agents_root = workspace_root / ".agents"
+    agents_skill = agents_root / "skills" / "sos-nagato"
+    agents_skill.mkdir(parents=True)
+    (agents_skill / "SKILL.md").write_text("ORIGINAL CONTENT\n", encoding="utf-8")
+    learned_target = runtime_paths.state / "recommendations" / "asahina-reference.md"
+    learned_target.parent.mkdir(parents=True, exist_ok=True)
+    learned_target.write_text("ORIGINAL LEARNED\n", encoding="utf-8")
+
+    # Create a valid backup with real snapshots
+    backup_id = "backup-20260515T130000000000Z"
+    backup_dir = runtime_paths.backups / backup_id
+    workspace_snapshot = backup_dir / "workspace-agents"
+    (workspace_snapshot / "skills" / "sos-nagato").mkdir(parents=True)
+    (workspace_snapshot / "skills" / "sos-nagato" / "SKILL.md").write_text(
+        "SNAPSHOT CONTENT\n", encoding="utf-8"
+    )
+    learned_snapshot = backup_dir / "learned-reference.md"
+    learned_snapshot.parent.mkdir(parents=True, exist_ok=True)
+    learned_snapshot.write_text("SNAPSHOT LEARNED\n", encoding="utf-8")
+    write_toml(backup_dir / "metadata.toml", {
+        "backup_id": backup_id,
+        "created_at": "2026-05-15T13:00:00+00:00",
+        "reason": "test",
+        "scope": "workspace_activation",
+        "host": "codex",
+        "workspace_root": str(workspace_root),
+        "workspace_skill_parent_target": str(agents_root),
+        "workspace_skill_parent_kind": "dir",
+        "workspace_skill_parent_snapshot_path": workspace_snapshot.as_posix(),
+        "learned_reference_target": str(learned_target),
+        "learned_reference_kind": "file",
+        "learned_reference_snapshot_path": learned_snapshot.as_posix(),
+    })
+
+    # Create an external file outside the backup directory
+    external_dir = tmp_path / "external-evil"
+    external_dir.mkdir()
+    external_file = external_dir / "workspace-agents"
+    (external_file / "skills" / "sos-nagato").mkdir(parents=True)
+    (external_file / "skills" / "sos-nagato" / "SKILL.md").write_text(
+        "EVIL CONTENT\n", encoding="utf-8"
+    )
+
+    # Tamper metadata to point snapshot path at the external location
+    tampered_metadata = {
+        "backup_id": backup_id,
+        "created_at": "2026-05-15T13:00:00+00:00",
+        "reason": "test",
+        "scope": "workspace_activation",
+        "host": "codex",
+        "workspace_root": str(workspace_root),
+        "workspace_skill_parent_target": str(agents_root),
+        "workspace_skill_parent_kind": "dir",
+        "workspace_skill_parent_snapshot_path": external_file.as_posix(),
+        "learned_reference_target": str(learned_target),
+        "learned_reference_kind": "file",
+        "learned_reference_snapshot_path": learned_snapshot.as_posix(),
+    }
+    write_toml(backup_dir / "metadata.toml", tampered_metadata)
+
+    with pytest.raises(ValueError, match="escapes backup directory"):
+        restore_backup(
+            runtime_paths,
+            backup_id,
+            codex_config_path=None,
+            vault_root=None,
+            apply=True,
+        )
+
+    # Workspace must NOT have been modified
+    assert (agents_skill / "SKILL.md").read_text(encoding="utf-8") == "ORIGINAL CONTENT\n"
+    assert learned_target.read_text(encoding="utf-8") == "ORIGINAL LEARNED\n"
