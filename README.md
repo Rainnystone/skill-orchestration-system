@@ -150,19 +150,20 @@ setup. That is where the Haruhi-themed pair comes in.
   recommendation history into a learned reference for future `sos-nagato`
   recommendations. It is not a hook and it does not run in the background.
 
-Typical flow:
+Codex workspace activation writes project-local skills under `.agents/skills`:
 
 ```bash
-sos recommend context --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT
-sos recommend activation-plan --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --packs docs,browser --out WORKSPACE_PLAN
-sos recommend activate --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT
-sos recommend activate --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --apply
+sos recommend activation-plan --host codex --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --packs docs,browser --out WORKSPACE_PLAN
+sos recommend activate --host codex --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT
+sos recommend activate --host codex --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --apply
 ```
 
-After successful workspace activation, SOS writes workspace-only skills under:
+Claude Code workspace activation writes project-local skills under `.claude/skills`:
 
-```text
-WORKSPACE_ROOT/.agents/skills/
+```bash
+sos recommend activation-plan --host claude --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --packs docs,browser --out WORKSPACE_PLAN
+sos recommend activate --host claude --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT
+sos recommend activate --host claude --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --apply
 ```
 
 That includes:
@@ -387,9 +388,9 @@ broad private absolute paths.
 | `sos pack sync <pack> --runtime-root <path> --apply` | Apply a valid pack sync plan. | Yes |
 | `sos changes --root <path> --runtime-root <path> --codex-config <path>` | Report new, missing, changed, stale, or unexpectedly enabled skills and pointers. | No |
 | `sos recommend context --workspace-root <path> --runtime-root <path>` | Inspect workspace recommendation context. | No |
-| `sos recommend activation-plan --workspace-root <path> --runtime-root <path> --packs <ids> --out <path>` | Write a workspace activation plan. | Only the plan file |
-| `sos recommend activate --plan <path> --workspace-root <path> --runtime-root <path>` | Preview workspace activation. | No |
-| `sos recommend activate --plan <path> --workspace-root <path> --runtime-root <path> --apply` | Write workspace skills and the learned-reference stub. | Yes |
+| `sos recommend activation-plan [--host {codex,claude}] --workspace-root <path> --runtime-root <path> --packs <ids> --out <path>` | Write a workspace activation plan. | Only the plan file |
+| `sos recommend activate [--host {codex,claude}] --plan <path> --workspace-root <path> --runtime-root <path>` | Preview workspace activation. | No |
+| `sos recommend activate [--host {codex,claude}] --plan <path> --workspace-root <path> --runtime-root <path> --apply` | Write workspace skills and the learned-reference stub. | Yes |
 | `sos recommend record-selection --runtime-root <path> --workspace-root <path> ...` | Record one accepted workspace recommendation selection. | Yes |
 | `sos recommend learn --runtime-root <path>` | Preview the learned reference. | No |
 | `sos recommend learn --runtime-root <path> --apply` | Write the learned reference. | Yes |

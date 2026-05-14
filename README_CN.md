@@ -113,19 +113,20 @@ sos changes --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --codex-config CODEX_
 - `sos-nagato` 负责 workspace 级推荐。它查看轻量 workspace 信号，读取本地 learned reference，然后建议适合当前任务的 managed packs。
 - `sos-asahina` 是显式触发的整理工具。只有当你想把已批准的本地推荐历史整理成 learned reference 时才使用它。它不是 hook，也不会在后台自动运行。
 
-典型流程：
+Codex workspace activation 会写入 `.agents/skills`：
 
 ```bash
-sos recommend context --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT
-sos recommend activation-plan --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --packs docs,browser --out WORKSPACE_PLAN
-sos recommend activate --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT
-sos recommend activate --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --apply
+sos recommend activation-plan --host codex --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --packs docs,browser --out WORKSPACE_PLAN
+sos recommend activate --host codex --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT
+sos recommend activate --host codex --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --apply
 ```
 
-workspace activation 成功后，SOS 会把 workspace 专用 skills 写到：
+Claude Code workspace activation 会写入 `.claude/skills`：
 
-```text
-WORKSPACE_ROOT/.agents/skills/
+```bash
+sos recommend activation-plan --host claude --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --packs docs,browser --out WORKSPACE_PLAN
+sos recommend activate --host claude --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT
+sos recommend activate --host claude --plan WORKSPACE_PLAN --workspace-root WORKSPACE_ROOT --runtime-root RUNTIME_ROOT --apply
 ```
 
 包括：
@@ -331,9 +332,9 @@ workspace recommendation state 位于：
 | `sos pack sync <pack> --runtime-root <path> --apply` | 执行有效的 pack sync 计划。 | 是 |
 | `sos changes --root <path> --runtime-root <path> --codex-config <path>` | 报告新增、缺失、变化、过期或意外启用的 skills 和 pointers。 | 否 |
 | `sos recommend context --workspace-root <path> --runtime-root <path>` | 查看 workspace 推荐上下文。 | 否 |
-| `sos recommend activation-plan --workspace-root <path> --runtime-root <path> --packs <ids> --out <path>` | 写出 workspace activation plan。 | 只写计划文件 |
-| `sos recommend activate --plan <path> --workspace-root <path> --runtime-root <path>` | 预览 workspace activation。 | 否 |
-| `sos recommend activate --plan <path> --workspace-root <path> --runtime-root <path> --apply` | 写入 workspace skills 和 learned-reference stub。 | 是 |
+| `sos recommend activation-plan [--host {codex,claude}] --workspace-root <path> --runtime-root <path> --packs <ids> --out <path>` | 写出 workspace activation plan。 | 只写计划文件 |
+| `sos recommend activate [--host {codex,claude}] --plan <path> --workspace-root <path> --runtime-root <path>` | 预览 workspace activation。 | 否 |
+| `sos recommend activate [--host {codex,claude}] --plan <path> --workspace-root <path> --runtime-root <path> --apply` | 写入 workspace skills 和 learned-reference stub。 | 是 |
 | `sos recommend record-selection --runtime-root <path> --workspace-root <path> ...` | 记录一次被接受的 workspace 推荐选择。 | 是 |
 | `sos recommend learn --runtime-root <path>` | 预览 learned reference。 | 否 |
 | `sos recommend learn --runtime-root <path> --apply` | 写入 learned reference。 | 是 |

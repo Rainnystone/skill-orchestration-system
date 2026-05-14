@@ -29,15 +29,13 @@ global skill root.
 1. `sos recommend context --workspace-root <workspace> --runtime-root <.sos>`
    inspects workspace signals, lists available runtime packs, reports whether a
    learned reference is present, and prints recommendations without writing.
-2. `sos recommend activation-plan --workspace-root <workspace> --runtime-root <.sos> --packs <ids> --out <workspace-plan.toml>`
+2. `sos recommend activation-plan --host {codex,claude} --workspace-root <workspace> --runtime-root <.sos> --packs <ids> --out <workspace-plan.toml>`
    writes an auditable workspace activation plan only.
-3. `sos recommend activate --plan <workspace-plan.toml> --workspace-root <workspace> --runtime-root <.sos>`
+3. `sos recommend activate --host {codex,claude} --plan <workspace-plan.toml> --workspace-root <workspace> --runtime-root <.sos>`
    previews the workspace activation plan without writing.
-4. `sos recommend activate --plan <workspace-plan.toml> --workspace-root <workspace> --runtime-root <.sos> --apply`
-   writes workspace-local `.agents/skills/sos-nagato/SKILL.md`,
-   `.agents/skills/sos-asahina/SKILL.md`, one `.agents/skills/sos-<pack>/SKILL.md`
-   for each selected pack, and the learned-reference stub at
-   `state/recommendations/asahina-reference.md`.
+4. `sos recommend activate --host {codex,claude} --plan <workspace-plan.toml> --workspace-root <workspace> --runtime-root <.sos> --apply`
+   writes workspace-local generated skills. Codex writes under `.agents/skills/`;
+   Claude Code writes under `.claude/skills/`.
 5. `sos recommend record-selection --runtime-root <.sos> --workspace-root <workspace> ...`
    appends accepted selection records to
    `state/recommendations/selection-events.jsonl`.
