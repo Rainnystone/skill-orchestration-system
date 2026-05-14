@@ -450,8 +450,8 @@ def test_restore_workspace_activation_rollback_double_failure_shows_combined_err
 
     msg = str(exc_info.value).lower()
     assert "workspace activation restore failed" in msg
-    # At least one rollback error must be reported
-    assert "rollback" in msg
+    # At least one rollback error must be reported with a specific prefix
+    assert "learned reference rollback" in msg or "skill parent rollback" in msg
 
 
 def test_restore_workspace_activation_rejects_wrong_workspace_skill_root_before_writing(
