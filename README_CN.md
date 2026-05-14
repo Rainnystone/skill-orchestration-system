@@ -254,7 +254,7 @@ SOS 默认保守。
 
 ### SOS 会生成什么
 
-全局整理计划会把生成的 active skills 写到你选择的 skill root。workspace 推荐计划只会写到当前 workspace 的 `.agents/skills/` 目录。
+全局整理计划会把生成的 active skills 写到你选择的 skill root。workspace 推荐计划会写入 workspace 的宿主专属目录：Codex 写入 `.agents/skills/`（通过 `--host codex`），Claude Code 写入 `.claude/skills/`（通过 `--host claude`）。
 
 生成入口刻意保持很短：
 
@@ -322,9 +322,9 @@ workspace recommendation state 位于：
 | --- | --- | --- |
 | `sos scan --root <path> [--codex-config <path>]` | 列出某个目录下已启用的 skills。 | 否 |
 | `sos propose --root <path>` | 根据扫描结果提出 pack 候选。 | 否 |
-| `sos plan --host <host> --root <path> --runtime-root <path> --codex-config <path> --out <path>` | 写出可审查的计划文件。 | 只写计划文件 |
-| `sos apply --plan <path> [--host <host>]` | 汇总计划内容，做 dry run；未传 `--host` 时从计划文件中推断。 | 否 |
-| `sos apply --plan <path> [--host <host>] --apply` | 复制 skills、写 manifest 和 pointer、禁用原入口（Codex：写配置；Claude：移入 `.sos-archive`）并创建备份。 | 是 |
+| `sos plan --host {codex,claude} --root <path> --runtime-root <path> [--codex-config <path>] --out <path>` | 写出可审查的计划文件。codex 必须传 `--codex-config`，claude 会拒绝它。 | 只写计划文件 |
+| `sos apply --plan <path> [--host {codex,claude}]` | 汇总计划内容，做 dry run；未传 `--host` 时从计划文件中推断。 | 否 |
+| `sos apply --plan <path> [--host {codex,claude}] --apply` | 复制 skills、写 manifest 和 pointer、禁用原入口（Codex：写配置；Claude：移入 `.sos-archive`）并创建备份。 | 是 |
 | `sos pack activate <pack> --runtime-root <path>` | 激活 pack，并在符合条件时执行 clean sync。 | 可能 |
 | `sos pack list --runtime-root <path>` | 列出 runtime packs。 | 否 |
 | `sos pack show <pack> --runtime-root <path>` | 显示一个 pack manifest 和受管理 skills。 | 否 |

@@ -305,8 +305,9 @@ SOS is intentionally conservative.
 ### What SOS Creates
 
 An approved global plan writes generated active skills into the skill root you
-choose. A workspace recommendation plan writes generated skills only into that
-workspace's `.agents/skills/` directory.
+choose. A workspace recommendation plan writes generated skills into the
+workspace's host-specific directory: `.agents/skills/` for Codex (via
+`--host codex`) or `.claude/skills/` for Claude Code (via `--host claude`).
 
 The generated entry points are intentionally short:
 
@@ -378,9 +379,9 @@ broad private absolute paths.
 | --- | --- | --- |
 | `sos scan --root <path> [--codex-config <path>]` | List enabled skills under a root. | No |
 | `sos propose --root <path>` | Propose pack candidates from scanned skills. | No |
-| `sos plan --host <host> --root <path> --runtime-root <path> --codex-config <path> --out <path>` | Write a reviewable plan file. | Only the plan file |
-| `sos apply --plan <path> [--host <host>]` | Summarize a plan; host inferred from plan when omitted. | No |
-| `sos apply --plan <path> [--host <host>] --apply` | Copy skills, write manifests and pointers, disable originals (Codex: config write; Claude: move to `.sos-archive`), and create backups. | Yes |
+| `sos plan --host {codex,claude} --root <path> --runtime-root <path> [--codex-config <path>] --out <path>` | Write a reviewable plan file. `--codex-config` required for codex, rejected for claude. | Only the plan file |
+| `sos apply --plan <path> [--host {codex,claude}]` | Summarize a plan; host inferred from plan when omitted. | No |
+| `sos apply --plan <path> [--host {codex,claude}] --apply` | Copy skills, write manifests and pointers, disable originals (Codex: config write; Claude: move to `.sos-archive`), and create backups. | Yes |
 | `sos pack activate <pack> --runtime-root <path>` | Activate a pack and apply eligible clean syncs. | Sometimes |
 | `sos pack list --runtime-root <path>` | List runtime packs. | No |
 | `sos pack show <pack> --runtime-root <path>` | Show one pack manifest and its managed skills. | No |
