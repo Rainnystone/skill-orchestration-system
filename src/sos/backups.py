@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from dataclasses import dataclass
 from sos._archive import ARCHIVE_DIR_NAME
 from sos.path_safety import cross_platform_path_key, reject_path_collisions, safe_component
 from datetime import UTC, datetime
@@ -259,14 +260,28 @@ def _snapshot_optional_path(path: Path, snapshot_path: Path) -> tuple[str, Path 
     return "missing", None
 
 
-def _restore_workspace_activation_backup(
+@dataclass(frozen=True)
+class _WorkspaceActivationRestorePlan:
+    host: str
+    workspace_root: Path
+    skill_parent_target: Path
+    skill_parent_kind: str
+    skill_parent_snapshot_path: Path | None
+    learned_reference_target: Path
+    learned_reference_kind: str
+    learned_reference_snapshot_path: Path | None
+    workspace_skill_root: Path | None
+
+
+def _parse_workspace_activation_restore_plan(
     runtime_paths: RuntimePaths,
     record: BackupRecord,
-) -> None:
+) -> _WorkspaceActivationRestorePlan:
     metadata = record.metadata
     host = str(metadata.get("host", "codex"))
     safe_host = validate_host(host)
     workspace_root = Path(str(metadata["workspace_root"]))
+
     raw_target = metadata.get(
         "workspace_skill_parent_target",
         metadata.get("workspace_agents_target"),
@@ -277,14 +292,17 @@ def _restore_workspace_activation_backup(
             "and legacy workspace_agents_target"
         )
     skill_parent_target = Path(str(raw_target))
-    learned_target = Path(str(metadata["learned_reference_target"]))
+
+    raw_learned_target = metadata.get("learned_reference_target")
+    if raw_learned_target is None:
+        raise ValueError("backup metadata missing learned_reference_target")
+    learned_reference_target = Path(str(raw_learned_target))
+
     _validate_workspace_activation_restore_targets(
-        runtime_paths,
-        workspace_root,
-        skill_parent_target,
-        learned_target,
-        safe_host,
+        runtime_paths, workspace_root, skill_parent_target,
+        learned_reference_target, safe_host,
     )
+
     raw_kind = metadata.get(
         "workspace_skill_parent_kind",
         metadata.get("workspace_agents_kind"),
@@ -294,20 +312,94 @@ def _restore_workspace_activation_backup(
             "backup metadata missing workspace_skill_parent_kind "
             "and legacy workspace_agents_kind"
         )
+    skill_parent_kind = str(raw_kind)
+
+    raw_learned_kind = metadata.get("learned_reference_kind")
+    if raw_learned_kind is None:
+        raise ValueError("backup metadata missing learned_reference_kind")
+    learned_reference_kind = str(raw_learned_kind)
+
     raw_snapshot = metadata.get(
         "workspace_skill_parent_snapshot_path",
         metadata.get("workspace_agents_snapshot_path"),
     )
-    _restore_snapshot_by_kind(
-        kind=str(raw_kind),
-        snapshot_path=_optional_path(raw_snapshot),
-        target=skill_parent_target,
+    skill_parent_snapshot_path = _optional_path(raw_snapshot)
+
+    raw_learned_snapshot = metadata.get("learned_reference_snapshot_path")
+    learned_reference_snapshot_path = _optional_path(raw_learned_snapshot)
+
+    # Validate snapshot files exist for non-"missing" kinds
+    if skill_parent_kind != "missing" and skill_parent_snapshot_path is None:
+        raise ValueError(
+            "workspace activation backup missing skill parent snapshot path for non-missing kind"
+        )
+    if skill_parent_kind != "missing" and not skill_parent_snapshot_path.exists():
+        raise ValueError(
+            "workspace activation backup skill parent snapshot path does not exist"
+        )
+    if learned_reference_kind not in ("missing",) and learned_reference_snapshot_path is None:
+        raise ValueError(
+            "workspace activation backup missing learned reference snapshot path for non-missing kind"
+        )
+    if learned_reference_kind not in ("missing",) and not learned_reference_snapshot_path.exists():
+        raise ValueError(
+            "workspace activation backup learned reference snapshot path does not exist"
+        )
+
+    # Validate workspace_skill_root if present
+    workspace_skill_root = None
+    raw_skill_root = metadata.get("workspace_skill_root")
+    if raw_skill_root is not None:
+        workspace_skill_root = Path(str(raw_skill_root))
+        expected_skill_root = workspace_skill_root_for_host(workspace_root, safe_host)
+        if workspace_skill_root.resolve(strict=False) != expected_skill_root.resolve(strict=False):
+            raise ValueError(
+                "workspace activation backup workspace_skill_root does not match expected path"
+            )
+
+    return _WorkspaceActivationRestorePlan(
+        host=safe_host,
+        workspace_root=workspace_root,
+        skill_parent_target=skill_parent_target,
+        skill_parent_kind=skill_parent_kind,
+        skill_parent_snapshot_path=skill_parent_snapshot_path,
+        learned_reference_target=learned_reference_target,
+        learned_reference_kind=learned_reference_kind,
+        learned_reference_snapshot_path=learned_reference_snapshot_path,
+        workspace_skill_root=workspace_skill_root,
     )
-    _restore_snapshot_by_kind(
-        kind=str(metadata["learned_reference_kind"]),
-        snapshot_path=_optional_path(metadata.get("learned_reference_snapshot_path")),
-        target=learned_target,
-    )
+
+
+def _restore_workspace_activation_backup(
+    runtime_paths: RuntimePaths,
+    record: BackupRecord,
+) -> None:
+    plan = _parse_workspace_activation_restore_plan(runtime_paths, record)
+    snapshot_root = Path(tempfile.mkdtemp(prefix="sos-restore-rollback-"))
+    try:
+        pre_skill_parent = _snapshot_optional_path(
+            plan.skill_parent_target, snapshot_root / "skill-parent",
+        )
+        try:
+            _restore_snapshot_by_kind(
+                kind=plan.skill_parent_kind,
+                snapshot_path=plan.skill_parent_snapshot_path,
+                target=plan.skill_parent_target,
+            )
+            _restore_snapshot_by_kind(
+                kind=plan.learned_reference_kind,
+                snapshot_path=plan.learned_reference_snapshot_path,
+                target=plan.learned_reference_target,
+            )
+        except Exception:
+            _restore_snapshot_by_kind(
+                kind=pre_skill_parent[0],
+                snapshot_path=pre_skill_parent[1],
+                target=plan.skill_parent_target,
+            )
+            raise
+    finally:
+        shutil.rmtree(snapshot_root, ignore_errors=True)
 
 
 def _validate_workspace_activation_restore_targets(

@@ -166,6 +166,198 @@ def test_restore_workspace_activation_rejects_metadata_missing_target_keys(
         )
 
 
+def test_restore_workspace_activation_rejects_missing_learned_reference_kind_before_writing(
+    tmp_path: Path,
+):
+    """Missing learned_reference_kind must fail before touching workspace files."""
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    agents_root = workspace_root / ".agents"
+    agents_skill = agents_root / "skills" / "sos-nagato"
+    agents_skill.mkdir(parents=True)
+    (agents_skill / "SKILL.md").write_text("SHOULD SURVIVE\n", encoding="utf-8")
+    learned_target = runtime_paths.state / "recommendations" / "asahina-reference.md"
+    backup_id = "backup-20260514T120000000000Z"
+    backup_dir = runtime_paths.backups / backup_id
+    workspace_snapshot = backup_dir / "workspace-agents"
+    (workspace_snapshot / "skills" / "sos-nagato").mkdir(parents=True)
+    (workspace_snapshot / "skills" / "sos-nagato" / "SKILL.md").write_text(
+        "SNAPSHOT\n", encoding="utf-8"
+    )
+    learned_snapshot = backup_dir / "learned-reference.md"
+    learned_snapshot.parent.mkdir(parents=True, exist_ok=True)
+    learned_snapshot.write_text("SNAPSHOT LEARNED\n", encoding="utf-8")
+    metadata = {
+        "backup_id": backup_id,
+        "created_at": "2026-05-14T12:00:00+00:00",
+        "reason": "test",
+        "scope": "workspace_activation",
+        "host": "codex",
+        "workspace_root": str(workspace_root),
+        "workspace_skill_parent_target": str(agents_root),
+        "workspace_skill_parent_kind": "dir",
+        "workspace_skill_parent_snapshot_path": workspace_snapshot.as_posix(),
+        "learned_reference_target": str(learned_target),
+        # Intentionally OMITTING learned_reference_kind
+        "learned_reference_snapshot_path": learned_snapshot.as_posix(),
+    }
+    write_toml(backup_dir / "metadata.toml", metadata)
+
+    with pytest.raises(ValueError, match="learned_reference_kind"):
+        restore_backup(
+            runtime_paths, backup_id,
+            codex_config_path=None, vault_root=None, apply=True,
+        )
+
+    assert (agents_skill / "SKILL.md").read_text(encoding="utf-8") == "SHOULD SURVIVE\n"
+
+
+def test_restore_workspace_activation_rejects_missing_snapshot_for_dir_kind_before_writing(
+    tmp_path: Path,
+):
+    """kind=dir but snapshot path points to nonexistent dir must fail before writes."""
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    agents_root = workspace_root / ".agents"
+    agents_skill = agents_root / "skills" / "sos-nagato"
+    agents_skill.mkdir(parents=True)
+    (agents_skill / "SKILL.md").write_text("SHOULD SURVIVE\n", encoding="utf-8")
+    learned_target = runtime_paths.state / "recommendations" / "asahina-reference.md"
+    backup_id = "backup-20260514T120100000000Z"
+    backup_dir = runtime_paths.backups / backup_id
+    # Intentionally do NOT create the workspace-agents snapshot directory
+    metadata = {
+        "backup_id": backup_id,
+        "created_at": "2026-05-14T12:01:00+00:00",
+        "reason": "test",
+        "scope": "workspace_activation",
+        "host": "codex",
+        "workspace_root": str(workspace_root),
+        "workspace_skill_parent_target": str(agents_root),
+        "workspace_skill_parent_kind": "dir",
+        "workspace_skill_parent_snapshot_path": (backup_dir / "workspace-agents").as_posix(),
+        "learned_reference_target": str(learned_target),
+        "learned_reference_kind": "missing",
+    }
+    write_toml(backup_dir / "metadata.toml", metadata)
+
+    with pytest.raises(ValueError, match="snapshot"):
+        restore_backup(
+            runtime_paths, backup_id,
+            codex_config_path=None, vault_root=None, apply=True,
+        )
+
+    assert (agents_skill / "SKILL.md").read_text(encoding="utf-8") == "SHOULD SURVIVE\n"
+
+
+def test_restore_workspace_activation_rolls_back_skill_parent_on_learned_reference_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """If learned reference restore fails after skill parent restore, skill parent must be rolled back."""
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    agents_root = workspace_root / ".agents"
+    agents_skill = agents_root / "skills" / "sos-nagato"
+    agents_skill.mkdir(parents=True)
+    (agents_skill / "SKILL.md").write_text("CURRENT NAGATO\n", encoding="utf-8")
+    learned_target = runtime_paths.state / "recommendations" / "asahina-reference.md"
+    learned_target.parent.mkdir(parents=True)
+    learned_target.write_text("CURRENT LEARNED\n", encoding="utf-8")
+    backup_id = "backup-20260514T120200000000Z"
+    backup_dir = runtime_paths.backups / backup_id
+    workspace_snapshot = backup_dir / "workspace-agents"
+    (workspace_snapshot / "skills" / "sos-nagato").mkdir(parents=True)
+    (workspace_snapshot / "skills" / "sos-nagato" / "SKILL.md").write_text(
+        "SNAPSHOT NAGATO\n", encoding="utf-8"
+    )
+    learned_snapshot = backup_dir / "learned-reference.md"
+    learned_snapshot.parent.mkdir(parents=True, exist_ok=True)
+    learned_snapshot.write_text("SNAPSHOT LEARNED\n", encoding="utf-8")
+    write_toml(backup_dir / "metadata.toml", {
+        "backup_id": backup_id,
+        "created_at": "2026-05-14T12:02:00+00:00",
+        "reason": "test",
+        "scope": "workspace_activation",
+        "host": "codex",
+        "workspace_root": str(workspace_root),
+        "workspace_skill_parent_target": str(agents_root),
+        "workspace_skill_parent_kind": "dir",
+        "workspace_skill_parent_snapshot_path": workspace_snapshot.as_posix(),
+        "learned_reference_target": str(learned_target),
+        "learned_reference_kind": "file",
+        "learned_reference_snapshot_path": learned_snapshot.as_posix(),
+    })
+
+    original_replace_file_atomic = backups._replace_file_atomic
+
+    def fail_learned_restore(source: Path, target: Path) -> None:
+        if target == learned_target:
+            raise RuntimeError("learned reference restore failed")
+        original_replace_file_atomic(source, target)
+
+    monkeypatch.setattr(backups, "_replace_file_atomic", fail_learned_restore)
+
+    with pytest.raises(RuntimeError, match="learned reference restore failed"):
+        restore_backup(
+            runtime_paths, backup_id,
+            codex_config_path=None, vault_root=None, apply=True,
+        )
+
+    # Skill parent must be rolled back to its pre-restore state
+    assert (agents_skill / "SKILL.md").read_text(encoding="utf-8") == "CURRENT NAGATO\n"
+
+
+def test_restore_workspace_activation_rejects_wrong_workspace_skill_root_before_writing(
+    tmp_path: Path,
+):
+    """workspace_skill_root pointing to wrong workspace must fail before writes."""
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    other_root = tmp_path / "other-workspace"
+    other_root.mkdir()
+    agents_root = workspace_root / ".agents"
+    agents_skill = agents_root / "skills" / "sos-nagato"
+    agents_skill.mkdir(parents=True)
+    (agents_skill / "SKILL.md").write_text("SHOULD SURVIVE\n", encoding="utf-8")
+    backup_id = "backup-20260514T120300000000Z"
+    backup_dir = runtime_paths.backups / backup_id
+    workspace_snapshot = backup_dir / "workspace-agents"
+    (workspace_snapshot / "skills" / "sos-nagato").mkdir(parents=True)
+    (workspace_snapshot / "skills" / "sos-nagato" / "SKILL.md").write_text(
+        "SNAPSHOT\n", encoding="utf-8"
+    )
+    write_toml(backup_dir / "metadata.toml", {
+        "backup_id": backup_id,
+        "created_at": "2026-05-14T12:03:00+00:00",
+        "reason": "test",
+        "scope": "workspace_activation",
+        "host": "codex",
+        "workspace_root": str(workspace_root),
+        "workspace_skill_parent_target": str(agents_root),
+        "workspace_skill_parent_kind": "dir",
+        "workspace_skill_parent_snapshot_path": workspace_snapshot.as_posix(),
+        # Wrong: workspace_skill_root points to other workspace
+        "workspace_skill_root": str(other_root / ".agents" / "skills"),
+        "learned_reference_target": str(
+            runtime_paths.state / "recommendations" / "asahina-reference.md"
+        ),
+        "learned_reference_kind": "missing",
+    })
+
+    with pytest.raises(ValueError, match="workspace_skill_root"):
+        restore_backup(
+            runtime_paths, backup_id,
+            codex_config_path=None, vault_root=None, apply=True,
+        )
+
+    assert (agents_skill / "SKILL.md").read_text(encoding="utf-8") == "SHOULD SURVIVE\n"
+
+
 def test_restore_backup_rejects_unsafe_backup_id_before_reading_outside_metadata(
     tmp_path: Path,
 ):
