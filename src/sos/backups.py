@@ -408,6 +408,9 @@ def _restore_workspace_activation_backup(
         pre_skill_parent = _snapshot_optional_path(
             plan.skill_parent_target, snapshot_root / "skill-parent",
         )
+        pre_learned_reference = _snapshot_optional_path(
+            plan.learned_reference_target, snapshot_root / "learned-reference",
+        )
         try:
             _restore_snapshot_by_kind(
                 kind=plan.skill_parent_kind,
@@ -420,16 +423,27 @@ def _restore_workspace_activation_backup(
                 target=plan.learned_reference_target,
             )
         except Exception as restore_error:
+            rollback_errors = []
+            try:
+                _restore_snapshot_by_kind(
+                    kind=pre_learned_reference[0],
+                    snapshot_path=pre_learned_reference[1],
+                    target=plan.learned_reference_target,
+                )
+            except Exception as e:
+                rollback_errors.append(f"learned reference rollback: {e}")
             try:
                 _restore_snapshot_by_kind(
                     kind=pre_skill_parent[0],
                     snapshot_path=pre_skill_parent[1],
                     target=plan.skill_parent_target,
                 )
-            except Exception as rollback_error:
+            except Exception as e:
+                rollback_errors.append(f"skill parent rollback: {e}")
+            if rollback_errors:
                 raise RuntimeError(
                     f"Workspace activation restore failed ({restore_error}); "
-                    f"rollback also failed ({rollback_error})"
+                    + "; ".join(rollback_errors)
                 ) from restore_error
             raise
     finally:

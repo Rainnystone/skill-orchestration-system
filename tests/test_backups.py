@@ -311,6 +311,76 @@ def test_restore_workspace_activation_rolls_back_skill_parent_on_learned_referen
     assert (agents_skill / "SKILL.md").read_text(encoding="utf-8") == "CURRENT NAGATO\n"
 
 
+def test_restore_workspace_activation_rolls_back_both_targets_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """If learned reference restore fails after skill parent restore, BOTH must be rolled back."""
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    agents_root = workspace_root / ".agents"
+    agents_skill = agents_root / "skills" / "sos-nagato"
+    agents_skill.mkdir(parents=True)
+    (agents_skill / "SKILL.md").write_text("ORIGINAL SP\n", encoding="utf-8")
+    learned_target = runtime_paths.state / "recommendations" / "asahina-reference.md"
+    learned_target.parent.mkdir(parents=True)
+    learned_target.write_text("ORIGINAL LR\n", encoding="utf-8")
+    backup_id = "backup-20260515T110000000000Z"
+    backup_dir = runtime_paths.backups / backup_id
+    workspace_snapshot = backup_dir / "workspace-agents"
+    (workspace_snapshot / "skills" / "sos-nagato").mkdir(parents=True)
+    (workspace_snapshot / "skills" / "sos-nagato" / "SKILL.md").write_text(
+        "BACKUP SP\n", encoding="utf-8"
+    )
+    learned_snapshot = backup_dir / "learned-reference.md"
+    learned_snapshot.parent.mkdir(parents=True, exist_ok=True)
+    learned_snapshot.write_text("BACKUP LR\n", encoding="utf-8")
+    write_toml(backup_dir / "metadata.toml", {
+        "backup_id": backup_id,
+        "created_at": "2026-05-15T11:00:00+00:00",
+        "reason": "test",
+        "scope": "workspace_activation",
+        "host": "codex",
+        "workspace_root": str(workspace_root),
+        "workspace_skill_parent_target": str(agents_root),
+        "workspace_skill_parent_kind": "dir",
+        "workspace_skill_parent_snapshot_path": workspace_snapshot.as_posix(),
+        "learned_reference_target": str(learned_target),
+        "learned_reference_kind": "file",
+        "learned_reference_snapshot_path": learned_snapshot.as_posix(),
+    })
+
+    # Monkeypatch _restore_snapshot_by_kind to corrupt the learned reference target
+    # before raising during the initial restore (not rollback). Rollback calls use
+    # pre-restore snapshot paths under a temp dir, while initial restore uses backup paths.
+    original_restore_snapshot = backups._restore_snapshot_by_kind
+    restore_calls = {"count": 0}
+
+    def fail_on_learned_reference(*, kind, snapshot_path, target):
+        restore_calls["count"] += 1
+        # Only fail on the initial restore (1st call for learned reference target).
+        # Rollback calls will have a different snapshot_path (under temp dir).
+        if target == learned_target and restore_calls["count"] == 2:
+            # Simulate partial write: corrupt the target before failing
+            target.write_text("CORRUPTED PARTIAL\n", encoding="utf-8")
+            raise RuntimeError("learned reference restore failed")
+        original_restore_snapshot(kind=kind, snapshot_path=snapshot_path, target=target)
+
+    monkeypatch.setattr(backups, "_restore_snapshot_by_kind", fail_on_learned_reference)
+
+    with pytest.raises(RuntimeError, match="learned reference restore failed"):
+        restore_backup(
+            runtime_paths, backup_id,
+            codex_config_path=None, vault_root=None, apply=True,
+        )
+
+    # Skill parent must be rolled back to its pre-restore state
+    assert (agents_skill / "SKILL.md").read_text(encoding="utf-8") == "ORIGINAL SP\n"
+    # Learned reference must also be rolled back to its pre-restore state (not CORRUPTED PARTIAL)
+    assert learned_target.read_text(encoding="utf-8") == "ORIGINAL LR\n"
+
+
 def test_restore_workspace_activation_rollback_double_failure_shows_combined_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -380,7 +450,8 @@ def test_restore_workspace_activation_rollback_double_failure_shows_combined_err
 
     msg = str(exc_info.value).lower()
     assert "workspace activation restore failed" in msg
-    assert "rollback also failed" in msg
+    # At least one rollback error must be reported
+    assert "rollback" in msg
 
 
 def test_restore_workspace_activation_rejects_wrong_workspace_skill_root_before_writing(
