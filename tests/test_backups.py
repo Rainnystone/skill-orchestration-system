@@ -1154,3 +1154,136 @@ def test_restore_rejects_broken_symlink_at_target(tmp_path: Path):
 
     # The broken symlink must survive the preflight
     assert source_path.is_symlink()
+
+
+def test_workspace_activation_backup_metadata_stores_absolute_paths(tmp_path: Path):
+    """create_workspace_activation_backup must store absolute paths even when
+    called with relative workspace_root."""
+    import os
+    from sos.backups import create_workspace_activation_backup
+    from sos.toml_io import read_toml
+
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    agents_root = workspace_root / ".agents"
+    learned_target = runtime_paths.state / "recommendations" / "asahina-reference.md"
+    learned_target.parent.mkdir(parents=True, exist_ok=True)
+    learned_target.write_text("learned\n", encoding="utf-8")
+
+    # Use a relative-style path to simulate caller passing "./workspace"
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        relative_workspace = Path("./workspace")
+        record = create_workspace_activation_backup(
+            runtime_paths,
+            workspace_root=relative_workspace,
+            workspace_skill_parent_root=workspace_root / ".agents",
+            learned_reference_target=learned_target,
+            reason="test relative paths",
+            host="codex",
+        )
+    finally:
+        os.chdir(original_cwd)
+
+    # Read the metadata TOML directly
+    metadata_path = runtime_paths.backups / record.backup_id / "metadata.toml"
+    metadata = read_toml(metadata_path)
+
+    # All path values must be absolute POSIX paths (no relative segments like ./  or ..)
+    for key in (
+        "workspace_root",
+        "workspace_skill_parent_target",
+        "workspace_skill_root",
+        "learned_reference_target",
+    ):
+        value = metadata[key]
+        assert not value.startswith("./"), f"{key} should be absolute, got: {value}"
+        assert not value.startswith(".."), f"{key} should be absolute, got: {value}"
+        assert Path(value).is_absolute(), f"{key} should be absolute, got: {value}"
+
+
+def test_restore_workspace_activation_with_relative_workspace_root_in_metadata_cross_cwd(
+    tmp_path: Path,
+):
+    """Restoring from metadata that contains relative workspace paths must
+    resolve them correctly regardless of cwd, and must NOT write to a wrong
+    directory relative to the current cwd."""
+    import os
+    from sos.backups import restore_backup
+    from sos.toml_io import write_toml
+
+    runtime_paths = RuntimePaths.from_root(tmp_path / ".sos")
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    agents_root = workspace_root / ".agents"
+    agents_skill = agents_root / "skills" / "sos-nagato"
+    agents_skill.mkdir(parents=True)
+    (agents_skill / "SKILL.md").write_text("REAL CONTENT\n", encoding="utf-8")
+    learned_target = runtime_paths.state / "recommendations" / "asahina-reference.md"
+    learned_target.parent.mkdir(parents=True, exist_ok=True)
+    learned_target.write_text("REAL LEARNED\n", encoding="utf-8")
+
+    # Create a valid backup directory with snapshots
+    backup_id = "backup-20260515T120000000000Z"
+    backup_dir = runtime_paths.backups / backup_id
+    workspace_snapshot = backup_dir / "workspace-agents"
+    (workspace_snapshot / "skills" / "sos-nagato").mkdir(parents=True)
+    (workspace_snapshot / "skills" / "sos-nagato" / "SKILL.md").write_text(
+        "SNAPSHOT CONTENT\n", encoding="utf-8"
+    )
+    learned_snapshot = backup_dir / "learned-reference.md"
+    learned_snapshot.parent.mkdir(parents=True, exist_ok=True)
+    learned_snapshot.write_text("SNAPSHOT LEARNED\n", encoding="utf-8")
+
+    # Simulate metadata written by an older version that stored relative paths.
+    # Write relative paths that are correct when resolved from tmp_path.
+    write_toml(backup_dir / "metadata.toml", {
+        "backup_id": backup_id,
+        "created_at": "2026-05-15T12:00:00+00:00",
+        "reason": "simulated old-format relative paths",
+        "scope": "workspace_activation",
+        "host": "codex",
+        "workspace_root": "workspace",
+        "workspace_skill_parent_target": "workspace/.agents",
+        "workspace_skill_parent_kind": "dir",
+        "workspace_skill_parent_snapshot_path": workspace_snapshot.as_posix(),
+        "workspace_skill_root": "workspace/.agents/skills",
+        "learned_reference_target": str(learned_target),
+        "learned_reference_kind": "file",
+        "learned_reference_snapshot_path": learned_snapshot.as_posix(),
+    })
+
+    # Change cwd to a different directory to simulate cross-cwd restore
+    other_dir = tmp_path / "other-cwd"
+    other_dir.mkdir()
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(other_dir)
+        # The restore should either:
+        #  1. Resolve the relative paths and work correctly, OR
+        #  2. Reject the restore (validation error)
+        # It must NOT silently write to wrong_paths = other_dir / "workspace" / ".agents"
+        try:
+            restore_backup(
+                runtime_paths,
+                backup_id,
+                codex_config_path=None,
+                vault_root=None,
+                apply=True,
+            )
+            # If restore succeeded, it must have written to the correct location
+            assert (agents_skill / "SKILL.md").read_text(encoding="utf-8") == "SNAPSHOT CONTENT\n"
+            assert learned_target.read_text(encoding="utf-8") == "SNAPSHOT LEARNED\n"
+        except ValueError:
+            # Rejection is also acceptable -- the paths can't be validated
+            pass
+    finally:
+        os.chdir(original_cwd)
+
+    # Regardless of outcome, nothing should have been created in the wrong directory
+    wrong_agents = other_dir / "workspace" / ".agents"
+    assert not wrong_agents.exists(), (
+        "Restore must not create files in a wrong directory relative to cwd"
+    )

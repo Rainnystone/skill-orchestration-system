@@ -108,6 +108,20 @@ def _metadata_path_value(path: Path) -> str:
     return path.expanduser().resolve(strict=False).as_posix()
 
 
+def _require_absolute_metadata_path(raw_value: Any, label: str) -> None:
+    """Reject raw metadata path values that are not absolute.
+
+    This guards against old-format backups that stored relative paths:
+    ``resolve()`` would silently resolve them against the current cwd,
+    which may differ from the original cwd at backup time.
+    """
+    path = Path(str(raw_value))
+    if not path.is_absolute():
+        raise ValueError(
+            f"backup metadata {label} must be absolute, got: {raw_value!r}"
+        )
+
+
 def create_workspace_activation_backup(
     runtime_paths: RuntimePaths,
     workspace_root: str | Path,
@@ -144,11 +158,11 @@ def create_workspace_activation_backup(
         "reason": reason,
         "scope": WORKSPACE_ACTIVATION_SCOPE,
         "host": safe_host,
-        "workspace_root": str(workspace_root_path),
-        "workspace_skill_parent_target": str(skill_parent_target),
+        "workspace_root": _metadata_path_value(workspace_root_path),
+        "workspace_skill_parent_target": _metadata_path_value(skill_parent_target),
         "workspace_skill_parent_kind": skill_parent_kind,
-        "workspace_skill_root": str(workspace_skill_root_for_host(workspace_root_path, safe_host)),
-        "learned_reference_target": str(learned_target),
+        "workspace_skill_root": _metadata_path_value(workspace_skill_root_for_host(workspace_root_path, safe_host)),
+        "learned_reference_target": _metadata_path_value(learned_target),
         "learned_reference_kind": learned_kind,
     }
     if skill_parent_snapshot is not None:
@@ -280,7 +294,8 @@ def _parse_workspace_activation_restore_plan(
     metadata = record.metadata
     host = str(metadata.get("host", "codex"))
     safe_host = validate_host(host)
-    workspace_root = Path(str(metadata["workspace_root"]))
+    workspace_root = Path(str(metadata["workspace_root"])).expanduser().resolve(strict=False)
+    _require_absolute_metadata_path(metadata["workspace_root"], "workspace_root")
 
     raw_target = metadata.get(
         "workspace_skill_parent_target",
@@ -291,12 +306,14 @@ def _parse_workspace_activation_restore_plan(
             "backup metadata missing workspace_skill_parent_target "
             "and legacy workspace_agents_target"
         )
-    skill_parent_target = Path(str(raw_target))
+    skill_parent_target = Path(str(raw_target)).expanduser().resolve(strict=False)
+    _require_absolute_metadata_path(raw_target, "workspace_skill_parent_target")
 
     raw_learned_target = metadata.get("learned_reference_target")
     if raw_learned_target is None:
         raise ValueError("backup metadata missing learned_reference_target")
-    learned_reference_target = Path(str(raw_learned_target))
+    learned_reference_target = Path(str(raw_learned_target)).expanduser().resolve(strict=False)
+    _require_absolute_metadata_path(raw_learned_target, "learned_reference_target")
 
     _validate_workspace_activation_restore_targets(
         runtime_paths, workspace_root, skill_parent_target,
@@ -350,7 +367,8 @@ def _parse_workspace_activation_restore_plan(
     workspace_skill_root = None
     raw_skill_root = metadata.get("workspace_skill_root")
     if raw_skill_root is not None:
-        workspace_skill_root = Path(str(raw_skill_root))
+        workspace_skill_root = Path(str(raw_skill_root)).expanduser().resolve(strict=False)
+        _require_absolute_metadata_path(raw_skill_root, "workspace_skill_root")
         expected_skill_root = workspace_skill_root_for_host(workspace_root, safe_host)
         if workspace_skill_root.resolve(strict=False) != expected_skill_root.resolve(strict=False):
             raise ValueError(

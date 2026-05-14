@@ -556,7 +556,7 @@ def test_workspace_activation_claude_apply_creates_restorable_backup_for_existin
     assert len(backups) == 1
     assert backups[0].metadata["scope"] == "workspace_activation"
     assert backups[0].metadata["host"] == "claude"
-    assert backups[0].metadata["workspace_skill_root"] == str(claude_skill_root)
+    assert backups[0].metadata["workspace_skill_root"] == claude_skill_root.as_posix()
     assert existing_nagato.read_text(encoding="utf-8") != "ORIGINAL CLAUDE NAGATO\n"
 
     restore_backup(
