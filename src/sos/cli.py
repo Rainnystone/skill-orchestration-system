@@ -168,6 +168,7 @@ def _build_parser() -> argparse.ArgumentParser:
     recommend_activation_plan.add_argument("--runtime-root", required=True)
     recommend_activation_plan.add_argument("--packs", required=True)
     recommend_activation_plan.add_argument("--out", required=True)
+    recommend_activation_plan.add_argument("--host", choices=("codex", "claude"), default="codex")
     recommend_activation_plan.set_defaults(handler=_handle_recommend_activation_plan)
 
     recommend_activate = recommend_subcommands.add_parser(
@@ -178,6 +179,7 @@ def _build_parser() -> argparse.ArgumentParser:
     recommend_activate.add_argument("--runtime-root", required=True)
     recommend_activate.add_argument("--workspace-root", required=True)
     recommend_activate.add_argument("--apply", action="store_true")
+    recommend_activate.add_argument("--host", choices=("codex", "claude"), default=None)
     recommend_activate.set_defaults(handler=_handle_recommend_activate)
 
     recommend_record_selection = recommend_subcommands.add_parser(
@@ -498,6 +500,7 @@ def _handle_recommend_activation_plan(args: argparse.Namespace) -> int:
         runtime_paths,
         args.workspace_root,
         _csv_tuple(args.packs),
+        host=args.host,
     )
     serialize_write_plan(plan, out)
     print("workspace activation plan: WORKSPACE_PLAN")
@@ -520,6 +523,7 @@ def _handle_recommend_activate(args: argparse.Namespace) -> int:
         runtime_paths,
         workspace_root=args.workspace_root,
         apply=bool(args.apply),
+        host=args.host,
     )
     if not args.apply:
         print("dry-run workspace activation; no external files written")
