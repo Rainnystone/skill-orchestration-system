@@ -165,6 +165,21 @@ def _plan_id(
     return f"workspace-activation-{hashlib.sha256(encoded).hexdigest()[:16]}"
 
 
+def _legacy_codex_plan_id(
+    runtime_paths: RuntimePaths,
+    workspace_root: Path,
+    pack_ids: tuple[str, ...],
+) -> str:
+    payload = {
+        "version": 1,
+        "runtime_root": str(runtime_paths.root),
+        "workspace_root": str(workspace_root),
+        "pack_ids": list(pack_ids),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"workspace-activation-{hashlib.sha256(encoded).hexdigest()[:16]}"
+
+
 def _workspace_root_path(workspace_root: str | Path) -> Path:
     return Path(workspace_root).expanduser()
 
@@ -246,7 +261,12 @@ def _validate_workspace_activation_plan(
             f"workspace activation plan must target workspace {expected_skill_root.parent.name} skills root"
         )
     expected_plan_id = _plan_id(runtime_paths, workspace_root, plan.pack_ids, safe_host)
-    if plan.plan_id != expected_plan_id:
+    if plan.plan_id != expected_plan_id and not _matches_legacy_codex_plan_id(
+        plan,
+        runtime_paths,
+        workspace_root,
+        safe_host,
+    ):
         raise ValueError("workspace activation plan id mismatch")
     manifests = _selected_manifests(runtime_paths, plan.pack_ids)
 
@@ -285,6 +305,20 @@ def _validate_workspace_activation_plan(
         manifests=manifests,
         learned_reference_target=learned_target,
     )
+
+
+def _matches_legacy_codex_plan_id(
+    plan: WritePlan,
+    runtime_paths: RuntimePaths,
+    workspace_root: Path,
+    host: str,
+) -> bool:
+    if host != "codex":
+        return False
+    if any("host" in operation.metadata for operation in plan.operations):
+        return False
+    expected_plan_id = _legacy_codex_plan_id(runtime_paths, workspace_root, plan.pack_ids)
+    return plan.plan_id == expected_plan_id
 
 
 def _validate_workspace_root_anchor(

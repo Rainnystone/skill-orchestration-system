@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -21,6 +23,7 @@ from sos.recommendation_store import (
     ASAHINA_EMPTY_REFERENCE,
     learned_reference_path,
 )
+from sos.toml_io import read_toml, write_toml
 from sos.workspace_activation import (
     apply_workspace_activation_plan,
     build_workspace_activation_plan,
@@ -106,6 +109,37 @@ def _retarget_workspace_plan(plan: WritePlan, workspace_skill_root: Path) -> Wri
         second_confirmation=plan.second_confirmation,
         host=plan.host,
     )
+
+
+def _legacy_codex_workspace_activation_plan_id(
+    runtime_paths: RuntimePaths,
+    workspace_root: Path,
+    pack_ids: tuple[str, ...],
+) -> str:
+    payload = {
+        "version": 1,
+        "runtime_root": str(runtime_paths.root),
+        "workspace_root": str(workspace_root),
+        "pack_ids": list(pack_ids),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"workspace-activation-{hashlib.sha256(encoded).hexdigest()[:16]}"
+
+
+def _strip_operation_host_metadata(plan: WritePlan) -> tuple[WriteOperation, ...]:
+    operations: list[WriteOperation] = []
+    for operation in plan.operations:
+        metadata = dict(operation.metadata)
+        metadata.pop("host", None)
+        operations.append(
+            WriteOperation(
+                operation.kind,
+                source=operation.source,
+                target=operation.target,
+                metadata=metadata,
+            )
+        )
+    return tuple(operations)
 
 
 def test_workspace_activation_dry_run_does_not_create_workspace_or_recommendation_dirs(
@@ -386,6 +420,81 @@ def test_workspace_activation_plan_round_trips_with_new_operation_kinds(
         OperationKind.WRITE_WORKSPACE_SKILL,
         OperationKind.WRITE_LEARNED_REFERENCE_STUB,
     )
+
+
+def test_legacy_codex_workspace_activation_plan_without_host_can_still_apply(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    current_plan = build_workspace_activation_plan(
+        runtime_paths,
+        workspace_root,
+        ("docs",),
+        host="codex",
+    )
+    legacy_plan = WritePlan(
+        plan_id=_legacy_codex_workspace_activation_plan_id(
+            runtime_paths,
+            workspace_root,
+            ("docs",),
+        ),
+        pack_ids=current_plan.pack_ids,
+        operations=_strip_operation_host_metadata(current_plan),
+        requires_apply=True,
+    )
+    plan_path = tmp_path / "legacy-codex-workspace-plan.toml"
+    serialize_write_plan(legacy_plan, plan_path)
+    plan_data = read_toml(plan_path)
+    plan_data.pop("host", None)
+    write_toml(plan_path, plan_data)
+
+    loaded = load_write_plan(plan_path)
+    result = apply_workspace_activation_plan(
+        loaded,
+        runtime_paths,
+        workspace_root=workspace_root,
+        apply=True,
+    )
+
+    assert loaded.host == "codex"
+    assert result.status == "applied"
+    assert (workspace_root / ".agents" / "skills" / "sos-nagato" / "SKILL.md").is_file()
+    assert not (workspace_root / ".claude").exists()
+
+
+def test_current_codex_workspace_activation_plan_rejects_legacy_plan_id(
+    tmp_path: Path,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    current_plan = build_workspace_activation_plan(
+        runtime_paths,
+        workspace_root,
+        ("docs",),
+        host="codex",
+    )
+    tampered_plan = WritePlan(
+        plan_id=_legacy_codex_workspace_activation_plan_id(
+            runtime_paths,
+            workspace_root,
+            ("docs",),
+        ),
+        pack_ids=current_plan.pack_ids,
+        operations=current_plan.operations,
+        requires_apply=current_plan.requires_apply,
+        host=current_plan.host,
+    )
+
+    with pytest.raises(ValueError, match="workspace activation plan id mismatch"):
+        apply_workspace_activation_plan(
+            tampered_plan,
+            runtime_paths,
+            workspace_root=workspace_root,
+            apply=True,
+        )
+
+    assert not (workspace_root / ".agents").exists()
 
 
 def test_workspace_activation_claude_plan_targets_claude_skill_root_and_round_trips(
