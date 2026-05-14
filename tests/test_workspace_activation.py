@@ -571,6 +571,31 @@ def test_workspace_activation_claude_apply_creates_restorable_backup_for_existin
     assert learned_path.read_text(encoding="utf-8") == "ORIGINAL LEARNED\n"
 
 
+def test_workspace_activation_apply_returns_backup_id_when_snapshot_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    runtime_paths, _ = _setup_runtime_docs_pack(tmp_path)
+    workspace_root = _workspace_root(tmp_path)
+    plan = build_workspace_activation_plan(runtime_paths, workspace_root, ("docs",))
+
+    def fail_snapshot(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("snapshot boom")
+
+    monkeypatch.setattr("sos.workspace_activation._snapshot_targets", fail_snapshot)
+
+    result = apply_workspace_activation_plan(
+        plan,
+        runtime_paths,
+        workspace_root=workspace_root,
+        apply=True,
+    )
+
+    assert result.status == "failed"
+    assert result.backup_id is not None
+    assert "snapshot failed" in result.message
+
+
 def test_readme_mentions_both_agents_and_claude_skill_paths():
     readme_path = Path(__file__).resolve().parent.parent / "README.md"
     text = readme_path.read_text(encoding="utf-8")

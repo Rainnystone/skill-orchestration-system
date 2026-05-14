@@ -103,7 +103,15 @@ def apply_workspace_activation_plan(
         reason="workspace activation apply",
         host=effective_host,
     )
-    snapshots, snapshot_root = _snapshot_targets(validated)
+    try:
+        snapshots, snapshot_root = _snapshot_targets(validated)
+    except Exception as error:
+        return ApplyResult(
+            status="failed",
+            operations=plan.operations,
+            backup_id=backup.backup_id,
+            message=f"snapshot failed: {error}",
+        )
     try:
         render_nagato_skill(
             validated.nagato_target,
