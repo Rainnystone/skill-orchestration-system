@@ -596,6 +596,13 @@ def test_workspace_activation_apply_returns_backup_id_when_snapshot_fails(
     assert "snapshot failed" in result.message
 
 
+def test_activation_flow_doc_mentions_both_host_paths():
+    doc_path = Path(__file__).resolve().parent.parent / "references" / "activation-flow.md"
+    text = doc_path.read_text(encoding="utf-8")
+    assert ".agents/skills" in text
+    assert ".claude/skills" in text
+
+
 def test_readme_mentions_both_agents_and_claude_skill_paths():
     readme_path = Path(__file__).resolve().parent.parent / "README.md"
     text = readme_path.read_text(encoding="utf-8")

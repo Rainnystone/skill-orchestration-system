@@ -1060,6 +1060,7 @@ def test_recommend_activate_apply_returns_nonzero_on_failed_apply(
     assert exit_code == 1
     assert "apply status: failed" in captured.out
     assert "message: boom" in captured.out
+    assert "backup_id:" in captured.out
 
 
 def test_recommend_record_selection_rejects_empty_packs_and_skills(tmp_path: Path):
