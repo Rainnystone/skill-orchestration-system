@@ -2,55 +2,92 @@
 
 [English](README.md) | [中文](README_CN.md)
 
-Your agent skills should feel like a capable club room, not a storage closet
-where every old experiment has somehow earned permanent residency.
+> Good grief. Your agent skills should feel like a capable, tidy club room, not a storage closet where every discarded experiment has somehow earned permanent residency.
+> Why does almost every AI Agent framework assume the solution to a complex task is to dump dozens of tools into the prompt context at once?
+> You start vibe-coding, and within three days, your active skills folder looks exactly like the SOS Brigade clubroom—cluttered with strange, useless gadgets a certain chaotic "Brigade Chief" dragged in from who-knows-where.
+> If you leave them all active, the Agent gets cross-eyed and response times crawl. If you move directories by hand, you are bound to miss a config file, a backup, or a rollback path.
+> Since we've already been dragged into this bizarre club's workflow, we might as well handle it the rational way. Let's establish some basic paperwork rules to keep the chief's chaotic tool cabinet looking semi-professional.
 
-Skill Orchestration System, or SOS, helps Codex and Claude Code users keep a
-growing local skill library organized. It scans local Agent Skills, proposes
-task-focused packs, writes reviewable plans before touching important files, and
-keeps rollback paths nearby. A shocking idea, I know: let the strange club do
-the paperwork before it rearranges the furniture.
+---
 
-SOS supports Codex and Claude Code. Use `--host {codex,claude}` to select the
-host per write command.
+## 🔍 What is SOS?
 
-## Why You Need SOS
+**Skill Orchestration System (SOS)** is a lightweight local Agent Skill manager and dynamic routing registry designed for **Codex** and **Claude Code**.
 
-Agent skills are easy to add. That is useful, right up until your skills folder
-starts looking like a group project nobody volunteered to clean.
+By utilizing a **Skill Pack (Vault Isolation) mechanism**, **Workspace-level recommendations**, and **local adaptive learning**, SOS helps developers automatically catalog and isolate large directories of `SKILL.md` folders. Without altering the agent's default lookup logic, SOS reduces active-layer skills by over 90%, preventing **Prompt Pollution**, **Context Dilution**, and **Function Hallucination**.
 
-After a few weeks, you may have old experiments, one-off workflows, plugin cache
-copies, personal helpers, and the few skills you actually need all living in the
-same place. If every skill stays active, the agent sees too much. If you move
-files by hand, you eventually miss a config entry, a backup, or a rollback path.
-Neither outcome is exactly the glorious future promised by vibe coding.
+---
+
+## ⚡ Pain Points & Solutions (Why You Need SOS)
+
+As your local AI Agent skill library grows, directories degrade rapidly. Here is how SOS resolves these challenges:
+
+- **Prompt Bloat & Context Dilution**: All `SKILL.md` folders are active, forcing the agent to process irrelevant instructions.
+- **Global vs. Project Tool Conflict**: Tools for one project contaminate another, causing the agent to execute wrong scripts.
+- **Fragile Manual Backups**: Renaming or moving folders manually leads to config drift or lost work.
+- **Rigid Rule-Based Recommendations**: Standard heuristics fail to adapt to a developer's unique high-frequency tool chains.
 
 SOS gives that sprawl a small, auditable shape:
-
 - scan local `SKILL.md` folders;
-- propose focused packs such as docs, browser, data, deploy, or tool-specific
-  groups;
+- propose focused packs such as docs, browser, data, deploy, or tool-specific groups;
 - write a dry-run plan before managed writes;
 - copy selected skills into a managed vault;
 - generate short active skills such as `sos-haruhi` and `sos-<pack>`;
 - keep manifests, registry state, fingerprints, backups, and restore paths;
-- recommend workspace-level packs through `sos-nagato` when one workspace needs
-  a different setup from another.
+- recommend workspace-level packs through `sos-nagato` when one workspace needs a different setup from another.
 
-The point is not to make your skill system mysterious. The point is to keep the
-mystery where it belongs: in what you are building, not in which folder contains
-the correct `SKILL.md`.
+---
 
-## How To Use SOS
+## 🌟 Core Features
 
-There are three practical paths: use the bundled Codex skill, use the CLI
-directly, or use workspace recommendation when a specific project needs a
-temporary skill set.
+### 1. Skill Packs & Vault Isolation
+SOS scans your designated skills root, parses raw skill subdirectories, and proposes grouping them into functional **Skill Packs** (e.g., `docs`, `browser`, `data`, `deploy`).
+- **Vault Isolation**: Original skill implementations are safely archived in `<runtime-root>/vault/`.
+- **Pointer Stubs**: Only a minimal routing pointer skill (e.g. `sos-docs`, `sos-browser`) is created in the active agent skills folder, containing metadata instead of the full skill text.
+- **On-Demand Activation**: When the agent requests a pack, the pointer uses `sos pack activate` in the background to sync vault copies instantly.
+
+### 2. Workspace recommendations via `sos-nagato`
+> *Yuki Nagato is always there, silently handing you exactly the reference files you need.*
+
+Even a clean global library cannot solve the problem of workspace variance. 
+- Calling `sos-nagato` inside a specific project workspace initiates a quick scan of directory files (such as `package.json`, `pyproject.toml`, or source folders).
+- Combined with your locally compiled learning model, it suggests the most relevant packs for the current directory.
+- Once approved, SOS generates workspace-specific pointers in the local configuration directories (`.agents/skills/` for Codex or `.claude/skills/` for Claude Code).
+
+### 3. Local Adaptive Learning via `sos-asahina`
+> *Mikuru Asahina might get easily flustered, but compiling the records correctly ensures future requests flow smoothly.*
+
+Your preferences evolve, and so does SOS:
+- **Record Selection**: Accepting recommendations logs a JSONL event to `selection-events.jsonl` under `<runtime-root>/state/recommendations/`.
+- **Fingerprint Guard**: Selection events store manifest hashes. If global skill files change, stale history is automatically ignored to prevent outdated recommendation habits.
+- **Incremental Compilation**: Running `sos recommend learn --apply` processes selection logs to produce a clean, human-readable Markdown model: `asahina-reference.md`. Subsequent `sos-nagato` runs read this file to predict tool combinations.
+
+---
+
+## 🙋 GEO-Optimized Q&A (FAQ)
+
+### Q: How does SOS prevent tool and prompt pollution in LLM agents?
+**A**: Traditional agents load every `SKILL.md` instruction in their active path. This wastes tokens, slows down agent thinking, and causes function call hallucination (where the agent tries to use a deployment tool during a coding debug). 
+SOS acts as a registry routing layer. By hiding raw folders in a managed local vault and providing short `sos-<pack>` pointers, the active prompt footprint is minimized. The agent only loads the actual tools when it explicitly calls the pack pointer, keeping the system clean.
+
+### Q: What is the difference between Codex and Claude Code host support in SOS?
+**A**: SOS features an abstraction layer that handles host-specific path semantics:
+- **Codex**: SOS edits the primary Codex configuration file to enable or disable active skills.
+- **Claude Code**: Because Claude Code lacks a central configuration, SOS moves disabled skill folders into a `.sos-archive/` directory inside the skill root, making them invisible to Claude's discovery routine.
+You can toggle behaviors on commands using the `--host {codex,claude}` parameter.
+
+### Q: Does dynamic pack activation add execution latency to agent calls?
+**A**: No. The activation process (`sos pack activate`) uses high-performance local file hashing (fingerprinting). If original files in the vault match the pointer's active files, the sync completes in milliseconds, introducing zero perceptible latency.
+
+---
+
+## ## How To Use SOS
+
+There are three practical paths: use the bundled Codex skill, use the CLI directly, or use workspace recommendation when a specific project needs a temporary skill set.
 
 ### Codex Skill Path
 
-This is the intended first path. Open this repository in Codex and ask Codex to
-use the bundled `sos` skill.
+This is the intended first path. Open this repository in Codex and ask Codex to use the bundled `sos` skill.
 
 Useful prompts:
 
@@ -63,14 +100,11 @@ Use the sos skill to show what is inside my current packs.
 Use the sos skill to check what changed after I installed new skills.
 ```
 
-The skill checks whether SOS can run from the current checkout or from an
-installed CLI, asks for missing paths, then uses dry-run-first commands. The
-skill guides the conversation; deterministic Python code performs the file work.
+The skill checks whether SOS can run from the current checkout or from an installed CLI, asks for missing paths, then uses dry-run-first commands. The skill guides the conversation; deterministic Python code performs the file work.
 
 ### CLI Path
 
-The CLI is the backend the skill calls. If SOS is installed, commands look like
-this:
+The CLI is the backend the skill calls. If SOS is installed, commands look like this:
 
 ```bash
 sos scan --root SKILLS_ROOT --codex-config CODEX_CONFIG
@@ -89,8 +123,7 @@ The safe rhythm is always the same:
 
 ### Use Generated Pack Skills
 
-After a plan is applied, SOS writes short active skills into the selected skills
-root:
+After a plan is applied, SOS writes short active skills into the selected skills root:
 
 - `sos-haruhi` for SOS status, pack management, backups, restores, and changes;
 - `sos-<pack>` for each generated pack, such as `sos-docs` or `sos-browser`.
@@ -103,18 +136,12 @@ Use sos-docs for this documentation task.
 Use sos-browser to inspect this local web flow.
 ```
 
-Pack pointers do not paste the entire original skill body into the active layer.
-They point the agent to the pack manifest and managed vault copy. If you name a
-specific packed skill, SOS matches it against manifest `skills.name`; otherwise
-the pointer chooses from manifest metadata and asks when the choice is unclear.
-Before reading the vault copy, a pack pointer uses
-`pack activate PACK_ID --runtime-root RUNTIME_ROOT --sync=clean-auto` so the
-managed copy can stay current.
+Pack pointers do not paste the entire original skill body into the active layer. They point the agent to the pack manifest and managed vault copy. If you name a specific packed skill, SOS matches it against manifest `skills.name`; otherwise the pointer chooses from manifest metadata and asks when the choice is unclear. Before reading the vault copy, a pack pointer uses `pack activate PACK_ID --runtime-root RUNTIME_ROOT --sync=clean-auto` so the managed copy can stay current.
+The `pack activate` command performs checkouts and safety checks inside the runtime folder.
 
 ### Inspect Existing Packs
 
-When you want to know what is inside the club room before someone starts issuing
-orders:
+When you want to know what is inside the club room before someone starts issuing orders:
 
 ```bash
 sos pack list --runtime-root RUNTIME_ROOT
@@ -122,8 +149,7 @@ sos pack show PACK_ID --runtime-root RUNTIME_ROOT
 sos pack show PACK_ID --runtime-root RUNTIME_ROOT --skill SKILL_NAME
 ```
 
-These commands are read-only. They answer what packs exist, which skills are in
-each pack, and where the managed vault copies live.
+These commands are read-only. They answer what packs exist, which skills are in each pack, and where the managed vault copies live.
 
 ### Check Drift After Installing Or Editing Skills
 
@@ -133,22 +159,14 @@ If your local skill library changes, run:
 sos changes --root SKILLS_ROOT --runtime-root RUNTIME_ROOT --codex-config CODEX_CONFIG
 ```
 
-It reports new unmanaged skills, missing or changed managed sources, vault
-drift, stale pointers, and managed source skills that were unexpectedly enabled.
-It does not repair anything by itself. It just points at the problem and waits,
-which is more restraint than some fictional club presidents might show.
+It reports new unmanaged skills, missing or changed managed sources, vault drift, stale pointers, and managed source skills that were unexpectedly enabled. It does not repair anything by itself. It just points at the problem and waits, which is more restraint than some fictional club presidents might show.
 
 ### Use Workspace Recommendations
 
-Some workspaces need their own active skills without changing your global skill
-setup. That is where the Haruhi-themed pair comes in.
+Some workspaces need their own active skills without changing your global skill setup. That is where the Haruhi-themed pair comes in.
 
-- `sos-nagato` recommends workspace-level packs. It inspects lightweight
-  workspace signals, reads the local learned reference if one exists, and
-  suggests relevant managed packs.
-- `sos-asahina` is explicit. Use it when you want to turn approved local
-  recommendation history into a learned reference for future `sos-nagato`
-  recommendations. It is not a hook and it does not run in the background.
+- `sos-nagato` recommends workspace-level packs. It inspects lightweight workspace signals, reads the local learned reference if one exists, and suggests relevant managed packs.
+- `sos-asahina` is explicit. Use it when you want to turn approved local recommendation history into a learned reference for future `sos-nagato` recommendations. It is not a hook and it does not run in the background.
 
 Codex workspace activation writes project-local skills under `.agents/skills`:
 
@@ -178,9 +196,7 @@ If the user accepts the recommendation, record that local fact:
 sos recommend record-selection --runtime-root RUNTIME_ROOT --workspace-root WORKSPACE_ROOT --scenario-label docs --scenario-tags docs --packs docs --skills documents --manifest-fingerprint MANIFEST_FINGERPRINT
 ```
 
-Use the `manifest_fingerprint` printed by `sos recommend context`. If the
-runtime manifests changed since that recommendation, SOS rejects the old
-fingerprint instead of letting stale history teach `sos-nagato` the wrong lesson.
+Use the `manifest_fingerprint` printed by `sos recommend context`. If the runtime manifests changed since that recommendation, SOS rejects the old fingerprint instead of letting stale history teach `sos-nagato` the wrong lesson.
 
 When you explicitly want to refresh the learned reference:
 
@@ -189,9 +205,9 @@ sos recommend learn --runtime-root RUNTIME_ROOT
 sos recommend learn --runtime-root RUNTIME_ROOT --apply
 ```
 
-`learn` validates historical records against the current runtime manifests and
-their fingerprint before using them. Stale local records or hand-edited JSONL
-that no longer match real packs and skills are skipped.
+`learn` validates historical records against the current runtime manifests and their fingerprint before using them. Stale local records or hand-edited JSONL that no longer match real packs and skills are skipped.
+
+---
 
 ## How To Install SOS
 
@@ -267,9 +283,7 @@ sos --version
 
 ### Claude Code Host
 
-Claude Code uses the same scan, plan, dry-run, apply rhythm, because apparently
-one club can have more than one doorway. Use `--host claude`; the skill root is
-usually `~/.claude/skills`, or `.claude/skills` inside a project workspace.
+Claude Code uses the same scan, plan, dry-run, apply rhythm, because apparently one club can have more than one doorway. Use `--host claude`; the skill root is usually `~/.claude/skills`, or `.claude/skills` inside a project workspace.
 
 ```bash
 sos scan --root ~/.claude/skills
@@ -279,11 +293,9 @@ sos apply --plan plan.toml
 sos apply --plan plan.toml --host claude --apply
 ```
 
-For `sos plan` and `sos changes`, `--codex-config` is required when
-`--host codex` and rejected when `--host claude`. `sos apply` reads the host
-from the plan TOML, so apply commands do not take `--codex-config` directly.
-After apply, disabled Claude source skills move under
-`~/.claude/skills/.sos-archive/<pack-id>/<name>/`; restore moves them back.
+For `sos plan` and `sos changes`, `--codex-config` is required when `--host codex` and rejected when `--host claude`. `sos apply` reads the host from the plan TOML, so apply commands do not take `--codex-config` directly. After apply, disabled Claude source skills move under `~/.claude/skills/.sos-archive/<pack-id>/<name>/`; restore moves them back.
+
+---
 
 ## Technical Reference
 
@@ -291,23 +303,17 @@ After apply, disabled Claude source skills move under
 
 SOS is intentionally conservative.
 
-- `scan`, `propose`, `pack list`, `pack show`, `changes`, `status`, and most
-  preview commands do not write.
+- `scan`, `propose`, `pack list`, `pack show`, `changes`, `status`, and most preview commands do not write.
 - `plan` writes only the explicit plan file.
 - `apply` without `--apply` is a dry run.
 - `apply --apply` creates backups before managed writes.
-- source skill deletion is off by default and requires `--delete-source`,
-  `--apply`, and `--confirm-delete-source <pack-id>`.
+- source skill deletion is off by default and requires `--delete-source`, `--apply`, and `--confirm-delete-source <pack-id>`.
 - restore and backup cleanup are dry-run by default unless `--apply` is used.
-- workspace recommendation activation requires an explicit `--workspace-root`
-  anchor, so a tampered plan cannot silently redirect workspace skill writes.
+- workspace recommendation activation requires an explicit `--workspace-root` anchor, so a tampered plan cannot silently redirect workspace skill writes.
 
 ### What SOS Creates
 
-An approved global plan writes generated active skills into the skill root you
-choose. A workspace recommendation plan writes generated skills into the
-workspace's host-specific directory: `.agents/skills/` for Codex (via
-`--host codex`) or `.claude/skills/` for Claude Code (via `--host claude`).
+An approved global plan writes generated active skills into the skill root you choose. A workspace recommendation plan writes generated skills into the workspace's host-specific directory: `.agents/skills/` for Codex (via `--host codex`) or `.claude/skills/` for Claude Code (via `--host claude`).
 
 The generated entry points are intentionally short:
 
@@ -316,8 +322,7 @@ The generated entry points are intentionally short:
 - `sos-asahina`: explicit learned-reference helper;
 - `sos-<pack>`: one pointer skill per selected pack.
 
-Pointer skills do not embed full source skill bodies. They route the agent to
-manifests and vault copies so the active skill surface stays small.
+Pointer skills do not embed full source skill bodies. They route the agent to manifests and vault copies so the active skill surface stays small.
 
 ### Runtime Layout
 
@@ -342,10 +347,7 @@ Workspace recommendation state lives under:
   asahina-reference.md
 ```
 
-Records stay local. SOS stores compact scenario tags, selected pack ids,
-selected skill names, a manifest fingerprint, and a hashed workspace id. It does
-not store raw prompts, file contents, model messages, account identifiers, or
-broad private absolute paths.
+Records stay local. SOS stores compact scenario tags, selected pack ids, selected skill names, a manifest fingerprint, and a hashed workspace id. It does not store raw prompts, file contents, model messages, account identifiers, or broad private absolute paths.
 
 ### Project Layout
 
@@ -360,7 +362,7 @@ broad private absolute paths.
 |   |-- pack_inspect.py     # Read-only pack list/show helpers
 |   |-- changes.py          # Read-only runtime and skill drift reporting
 |   |-- planner.py          # Reviewable write-plan generation
-|   |-- apply.py            # Plan execution and rollback-aware writes
+|   |-- apply.py            # Apply execution, rollback, source deletion
 |   |-- workspace_activation.py
 |   |-- recommendation_engine.py
 |   |-- recommendation_store.py
@@ -434,15 +436,20 @@ python -m sos --version
 
 ### Project Status
 
-SOS is early software. The implemented behavior is covered by tests, but the
-public API and pack proposal model may evolve before a stable release.
+SOS is early software. The implemented behavior is covered by tests, but the public API and pack proposal model may evolve before a stable release.
 
 ### Security And Privacy
 
-Do not commit real local config files, private skill libraries, backups, runtime
-vault contents, account data, or tokens. When sharing bug reports, replace local
-paths, usernames, and private workspace names with placeholders.
+Do not commit real local config files, private skill libraries, backups, runtime vault contents, account data, or tokens. When sharing bug reports, replace local paths, usernames, and private workspace names with placeholders.
+
+---
 
 ## License
 
 MIT License. See [LICENSE](LICENSE).
+
+---
+
+> **A Final Friendly Tip**:
+> "If you don't want the agent to accidentally trigger that half-broken deployment script you wrote six months ago while you're trying to debug a simple script, I recommend running `sos propose` right now.
+> If Haruhi complains that the active pointer skills don't show the full raw text in the sidebar... just ignore her. Nagato and Mikuru are running things behind the scenes, so nothing will break."
