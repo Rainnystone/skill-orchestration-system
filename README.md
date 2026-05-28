@@ -64,7 +64,7 @@ Your preferences evolve, and so does SOS:
 
 ---
 
-## 🙋 GEO-Optimized Q&A (FAQ)
+## 🙋 Frequently Asked Questions (FAQ)
 
 ### Q: How does SOS prevent tool and prompt pollution in LLM agents?
 **A**: Traditional agents load every `SKILL.md` instruction in their active path. This wastes tokens, slows down agent thinking, and causes function call hallucination (where the agent tries to use a deployment tool during a coding debug). 
