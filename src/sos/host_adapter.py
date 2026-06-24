@@ -71,19 +71,26 @@ class HostAdapter:
 
     # -- Execution ----------------------------------------------------------
 
-    def execute_disable(
+    def execute_archive_moves(
+        self,
+        plan: WritePlan,
+        archive_journal: list[ArchiveMove],
+    ) -> dict[Path, Path]:
+        """Execute archive moves that must run *before* manifest writes.
+
+        Returns an ``archive_map`` (source -> target) for fingerprint baselining.
+        """
+        raise NotImplementedError
+
+    def execute_post_pointer_disable(
         self,
         plan: WritePlan,
         config_path: Path,
         backup_config_path: Path | None,
         disabled_skill_md_paths: tuple[Path, ...],
-        archive_journal: list[ArchiveMove],
-    ) -> dict[Path, Path]:
-        """Execute host-specific disable/archive operations.
-
-        Returns an ``archive_map`` (source -> target) for fingerprint baselining.
-        """
-        raise NotImplementedError
+    ) -> None:
+        """Execute host-specific disable that runs *after* pointer writes."""
+        pass
 
     def post_apply(
         self,
@@ -159,14 +166,20 @@ class CodexHostAdapter(HostAdapter):
     ) -> Path:
         return skill.source_path
 
-    def execute_disable(
+    def execute_archive_moves(
+        self,
+        plan: WritePlan,
+        archive_journal: list[ArchiveMove],
+    ) -> dict[Path, Path]:
+        return {}
+
+    def execute_post_pointer_disable(
         self,
         plan: WritePlan,
         config_path: Path,
         backup_config_path: Path | None,
         disabled_skill_md_paths: tuple[Path, ...],
-        archive_journal: list[ArchiveMove],
-    ) -> dict[Path, Path]:
+    ) -> None:
         if backup_config_path is None:
             raise ValueError("backup_config_path is required for codex host")
         disable_skill_paths_with_backup(
@@ -175,7 +188,6 @@ class CodexHostAdapter(HostAdapter):
             backup_path=backup_config_path,
             apply=True,
         )
-        return {}
 
     def validate_host_plan(
         self,
@@ -272,12 +284,9 @@ class ClaudeHostAdapter(HostAdapter):
     ) -> Path:
         return active_root / ARCHIVE_DIR_NAME / manifest.id / skill.name
 
-    def execute_disable(
+    def execute_archive_moves(
         self,
         plan: WritePlan,
-        config_path: Path,
-        backup_config_path: Path | None,
-        disabled_skill_md_paths: tuple[Path, ...],
         archive_journal: list[ArchiveMove],
     ) -> dict[Path, Path]:
         from sos.path_safety import required_path

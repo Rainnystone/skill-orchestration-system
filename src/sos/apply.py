@@ -144,13 +144,7 @@ def apply_write_plan(
                 required_path(operation.target),
             )
 
-        archive_map = adapter.execute_disable(
-            plan,
-            config_path,
-            backup.config_path or (runtime_paths.backups / backup.backup_id / "config.toml"),
-            validated.disabled_skill_md_paths,
-            archive_journal,
-        )
+        archive_map = adapter.execute_archive_moves(plan, archive_journal)
 
         baselined_manifests = _with_initial_fingerprints(
             validated.manifests, archive_map=archive_map
@@ -173,6 +167,13 @@ def apply_write_plan(
         save_registry(required_path(registry_operation.target), registry)
 
         render_v1_active_skills(active_root, registry, baselined_manifests)
+
+        adapter.execute_post_pointer_disable(
+            plan,
+            config_path,
+            backup.config_path or (runtime_paths.backups / backup.backup_id / "config.toml"),
+            validated.disabled_skill_md_paths,
+        )
 
         for path in source_deletion_paths:
             remove_path(path)
