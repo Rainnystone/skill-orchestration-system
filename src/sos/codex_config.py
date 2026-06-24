@@ -127,3 +127,49 @@ def _restore_original_text(target: Path, original_text: str, original_existed: b
     finally:
         if temp_path is not None and temp_path.exists():
             temp_path.unlink()
+
+
+def disabled_paths_from_config(codex_config_path: str | Path | None) -> tuple[Path, ...]:
+    """Return skill paths marked ``enabled = false`` in a codex config file."""
+    if codex_config_path is None:
+        return ()
+    path = Path(codex_config_path)
+    if not path.exists():
+        return ()
+    config = load_codex_config(path)
+    skills = config.get("skills", {})
+    if not isinstance(skills, dict):
+        return ()
+    entries = skills.get("config", ())
+    if not isinstance(entries, list):
+        return ()
+    return tuple(
+        Path(str(entry["path"]))
+        for entry in entries
+        if isinstance(entry, dict)
+        and entry.get("enabled") is False
+        and "path" in entry
+    )
+
+
+def resolve_codex_config_arg(
+    host: str,
+    codex_config_value: str | None,
+    command: str,
+) -> Path | None:
+    """Resolve and validate the ``--codex-config`` argument for a given host.
+
+    For codex, the config path is required; for claude, it is rejected.
+    *command* is included in error messages for diagnostics.
+    """
+    if host == "codex":
+        if codex_config_value is None:
+            raise ValueError(
+                f"--codex-config is required for {command} when --host codex"
+            )
+        return Path(codex_config_value)
+    if codex_config_value is not None:
+        raise ValueError(
+            f"--codex-config is not accepted when --host claude (rejected for {command})"
+        )
+    return None

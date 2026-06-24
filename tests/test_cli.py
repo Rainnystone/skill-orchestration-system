@@ -10,7 +10,8 @@ from sos.manifest import save_pack_manifest, save_registry
 from sos.models import PackManifest, Registry, SkillEntry
 from sos.paths import RuntimePaths
 from sos.pointer import render_companion_skill
-from sos.cli import _runtime_manifest_fingerprint, main
+from sos.cli import main
+from sos.pack_inspect import runtime_manifest_fingerprint as _runtime_manifest_fingerprint
 from sos.recommendation_store import learned_reference_path, selection_events_path
 from sos.toml_io import read_toml, write_toml
 

@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 import sos.backups as backups
+import sos.backup_restore as backup_restore
 from sos.backups import create_backup, list_backups, prune_backups, restore_backup
 from sos.paths import RuntimePaths
 from sos.toml_io import write_toml
@@ -52,7 +53,7 @@ def test_restore_backup_rolls_back_config_when_vault_restore_fails(
     def fail_vault_restore(source: Path, target: Path) -> None:
         raise RuntimeError("vault restore failed")
 
-    monkeypatch.setattr(backups, "_replace_directory_atomic", fail_vault_restore)
+    monkeypatch.setattr(backup_restore, "_replace_directory_atomic", fail_vault_restore)
 
     with pytest.raises(RuntimeError, match="vault restore failed"):
         restore_backup(runtime_paths, record.backup_id, config_path, vault_root, apply=True)
@@ -292,14 +293,14 @@ def test_restore_workspace_activation_rolls_back_skill_parent_on_learned_referen
         "learned_reference_snapshot_path": learned_snapshot.as_posix(),
     })
 
-    original_replace_file_atomic = backups._replace_file_atomic
+    original_replace_file_atomic = backup_restore._replace_file_atomic
 
     def fail_learned_restore(source: Path, target: Path) -> None:
         if target == learned_target:
             raise RuntimeError("learned reference restore failed")
         original_replace_file_atomic(source, target)
 
-    monkeypatch.setattr(backups, "_replace_file_atomic", fail_learned_restore)
+    monkeypatch.setattr(backup_restore, "_replace_file_atomic", fail_learned_restore)
 
     with pytest.raises(RuntimeError, match="learned reference restore failed"):
         restore_backup(
@@ -354,7 +355,7 @@ def test_restore_workspace_activation_rolls_back_both_targets_on_failure(
     # Monkeypatch _restore_snapshot_by_kind to corrupt the learned reference target
     # before raising during the initial restore (not rollback). Rollback calls use
     # pre-restore snapshot paths under a temp dir, while initial restore uses backup paths.
-    original_restore_snapshot = backups._restore_snapshot_by_kind
+    original_restore_snapshot = backup_restore._restore_snapshot_by_kind
     restore_calls = {"count": 0}
 
     def fail_on_learned_reference(*, kind, snapshot_path, target):
@@ -367,7 +368,7 @@ def test_restore_workspace_activation_rolls_back_both_targets_on_failure(
             raise RuntimeError("learned reference restore failed")
         original_restore_snapshot(kind=kind, snapshot_path=snapshot_path, target=target)
 
-    monkeypatch.setattr(backups, "_restore_snapshot_by_kind", fail_on_learned_reference)
+    monkeypatch.setattr(backup_restore, "_restore_snapshot_by_kind", fail_on_learned_reference)
 
     with pytest.raises(RuntimeError, match="learned reference restore failed"):
         restore_backup(
@@ -421,8 +422,8 @@ def test_restore_workspace_activation_rollback_double_failure_shows_combined_err
         "learned_reference_snapshot_path": learned_snapshot.as_posix(),
     })
 
-    original_replace_file_atomic = backups._replace_file_atomic
-    original_replace_directory_atomic = backups._replace_directory_atomic
+    original_replace_file_atomic = backup_restore._replace_file_atomic
+    original_replace_directory_atomic = backup_restore._replace_directory_atomic
     dir_restore_calls = {"count": 0}
 
     def fail_learned_restore(source: Path, target: Path) -> None:
@@ -439,8 +440,8 @@ def test_restore_workspace_activation_rollback_double_failure_shows_combined_err
         else:
             raise RuntimeError("rollback directory failed")
 
-    monkeypatch.setattr(backups, "_replace_file_atomic", fail_learned_restore)
-    monkeypatch.setattr(backups, "_replace_directory_atomic", allow_first_dir_restore_then_fail)
+    monkeypatch.setattr(backup_restore, "_replace_file_atomic", fail_learned_restore)
+    monkeypatch.setattr(backup_restore, "_replace_directory_atomic", allow_first_dir_restore_then_fail)
 
     with pytest.raises(RuntimeError) as exc_info:
         restore_backup(
@@ -717,8 +718,10 @@ def test_restore_backup_rejects_windows_unsafe_backup_id_before_lookup(tmp_path:
 
 
 def test_validate_metadata_backup_id_rejects_windows_unsafe_name_without_filesystem_path():
+    from sos.backup_records import _validate_metadata_backup_id
+
     with pytest.raises(ValueError, match="unsafe backup_id"):
-        backups._validate_metadata_backup_id(
+        _validate_metadata_backup_id(
             "CON.txt",
             Path("CON.txt") / "metadata.toml",
         )
@@ -796,7 +799,7 @@ def _apply_claude_pack(
     skill_name: str,
 ):
     from sos.apply import apply_write_plan
-    from sos.cli import _annotate_backup_metadata
+    from sos.backups import annotate_backup_metadata as _annotate_backup_metadata
     from sos.planner import build_pack_apply_plan
     from sos.propose import PackProposal
     from sos.toml_io import read_toml
@@ -908,14 +911,14 @@ def test_restore_claude_rolls_archive_back_when_vault_restore_fails(
         skill_name="demo-skill",
     )
 
-    original_replace_directory_atomic = backups._replace_directory_atomic
+    original_replace_directory_atomic = backup_restore._replace_directory_atomic
 
     def fail_vault_restore(source: Path, target: Path) -> None:
         if source == runtime_paths.backups / backup_id / "vault":
             raise RuntimeError("vault restore failed")
         original_replace_directory_atomic(source, target)
 
-    monkeypatch.setattr(backups, "_replace_directory_atomic", fail_vault_restore)
+    monkeypatch.setattr(backup_restore, "_replace_directory_atomic", fail_vault_restore)
 
     with pytest.raises(RuntimeError, match="vault restore failed"):
         restore_backup(
@@ -1110,9 +1113,9 @@ def test_restore_claude_rollback_double_failure_shows_combined_error(
     def fail_rollback(moves: tuple[tuple[Path, Path], ...]) -> None:
         raise RuntimeError("rollback failed")
 
-    monkeypatch.setattr(backups, "_replace_directory_atomic", fail_vault_restore)
+    monkeypatch.setattr(backup_restore, "_replace_directory_atomic", fail_vault_restore)
     monkeypatch.setattr(
-        backups, "_rollback_restored_archive_moves", fail_rollback
+        backup_restore, "_rollback_restored_archive_moves", fail_rollback
     )
 
     with pytest.raises(RuntimeError) as exc_info:

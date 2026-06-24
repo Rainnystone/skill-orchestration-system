@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import shutil
-import tempfile
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
 from sos.fingerprint import fingerprint_dir
+from sos.fs_transaction import restore_snapshots, snapshot_paths, unique_paths
 from sos.manifest import load_pack_manifest, save_pack_manifest
 from sos.models import ActivationResult, OperationKind, PackManifest, SkillEntry, WriteOperation
 from sos.scanner import read_skill_frontmatter
@@ -168,7 +168,7 @@ def apply_pack_sync(sync_plan: SyncPlan, apply: bool) -> ActivationResult:
     except Exception as error:
         rollback_message = ""
         try:
-            _restore_snapshots(snapshots)
+            restore_snapshots(snapshots)
         except Exception as rollback_error:
             rollback_message = f"; rollback failed: {rollback_error}"
         return ActivationResult(
@@ -228,15 +228,7 @@ def _operations_of_kind(plan: SyncPlan, kind: OperationKind) -> tuple[WriteOpera
     return tuple(operation for operation in plan.operations if operation.kind == kind)
 
 
-@dataclass(frozen=True)
-class _PathSnapshot:
-    path: Path
-    kind: str
-    backup_path: Path | None = None
-
-
-def _snapshot_sync_targets(plan: SyncPlan) -> tuple[tuple[_PathSnapshot, ...], Path]:
-    snapshot_root = Path(tempfile.mkdtemp(prefix="sos-sync-rollback-"))
+def _snapshot_sync_targets(plan: SyncPlan) -> tuple[tuple, Path]:
     targets = (
         *tuple(
             operation.target
@@ -245,66 +237,7 @@ def _snapshot_sync_targets(plan: SyncPlan) -> tuple[tuple[_PathSnapshot, ...], P
         ),
         plan.manifest_path,
     )
-    snapshots = tuple(
-        _snapshot_path(path, snapshot_root, index)
-        for index, path in enumerate(_unique_paths(targets))
-    )
-    return snapshots, snapshot_root
-
-
-def _snapshot_path(path: Path, snapshot_root: Path, index: int) -> _PathSnapshot:
-    backup_path = snapshot_root / str(index)
-    if path.is_dir():
-        shutil.copytree(path, backup_path)
-        return _PathSnapshot(path=path, kind="dir", backup_path=backup_path)
-    if path.exists():
-        backup_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, backup_path)
-        return _PathSnapshot(path=path, kind="file", backup_path=backup_path)
-    return _PathSnapshot(path=path, kind="missing")
-
-
-def _restore_snapshots(snapshots: tuple[_PathSnapshot, ...]) -> None:
-    for snapshot in reversed(snapshots):
-        _restore_snapshot(snapshot)
-
-
-def _restore_snapshot(snapshot: _PathSnapshot) -> None:
-    if snapshot.kind == "missing":
-        _remove_path(snapshot.path)
-        return
-    if snapshot.backup_path is None:
-        raise ValueError(f"snapshot backup path missing for {snapshot.path}")
-
-    _remove_path(snapshot.path)
-    snapshot.path.parent.mkdir(parents=True, exist_ok=True)
-    if snapshot.kind == "dir":
-        shutil.copytree(snapshot.backup_path, snapshot.path)
-        return
-    if snapshot.kind == "file":
-        shutil.copy2(snapshot.backup_path, snapshot.path)
-        return
-    raise ValueError(f"unknown snapshot kind: {snapshot.kind}")
-
-
-def _remove_path(path: Path) -> None:
-    if path.is_dir():
-        shutil.rmtree(path)
-        return
-    if path.exists():
-        path.unlink()
-
-
-def _unique_paths(paths: tuple[Path, ...]) -> tuple[Path, ...]:
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for path in paths:
-        key = str(path.resolve(strict=False))
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(path)
-    return tuple(unique)
+    return snapshot_paths(unique_paths(targets), prefix="sos-sync-rollback-")
 
 
 def _with_synced_fingerprints(
