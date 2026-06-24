@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOS Architecture Review — Deepening Opportunities</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+  body { font-family: 'Inter', sans-serif; background: #0f172a; color: #e2e8f0; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .card { background: linear-gradient(135deg, #1e293b 0%, #1a2332 100%); border: 1px solid #334155; border-radius: 16px; }
+  .card-strong { border-color: #f59e0b; box-shadow: 0 0 40px rgba(245,158,11,0.08); }
+  .card-worth { border-color: #3b82f6; box-shadow: 0 0 40px rgba(59,130,246,0.06); }
+  .card-spec { border-color: #64748b; }
+  .badge { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.025em; }
+  .badge-strong { background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+  .badge-worth { background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+  .badge-spec { background: rgba(100,116,139,0.15); color: #94a3b8; border: 1px solid rgba(100,116,139,0.3); }
+  .file-tag { background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 3px 8px; font-size: 0.7rem; font-family: 'JetBrains Mono', monospace; color: #94a3b8; }
+  .depth-bar { height: 8px; border-radius: 4px; background: #1e293b; overflow: hidden; }
+  .depth-bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
+  .diagram-container { background: #0c1222; border-radius: 12px; border: 1px solid #1e293b; padding: 24px; }
+  .section-divider { height: 1px; background: linear-gradient(90deg, transparent, #334155, transparent); margin: 48px 0; }
+  .glow-text { text-shadow: 0 0 20px rgba(245,158,11,0.3); }
+  .top-pick { background: linear-gradient(135deg, rgba(245,158,11,0.08) 0%, rgba(234,88,12,0.04) 100%); border: 2px solid #f59e0b; border-radius: 16px; }
+  table.info-table { width: 100%; border-collapse: collapse; }
+  table.info-table td { padding: 6px 0; font-size: 0.85rem; }
+  table.info-table td:first-child { color: #94a3b8; width: 140px; }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-5xl mx-auto px-6 py-12">
+
+  <!-- Header -->
+  <header class="mb-12 text-center">
+    <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-800/60 border border-slate-700 text-slate-400 text-sm mb-6">
+      <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+      Architecture Deepening Review
+    </div>
+    <h1 class="text-4xl font-extrabold tracking-tight mb-3 glow-text">
+      SOS — Skill Orchestration System
+    </h1>
+    <p class="text-slate-400 text-lg max-w-2xl mx-auto">
+      Five deepening opportunities identified across 26 modules (~6,575 LOC).
+      Each candidate is evaluated through the lens of <strong class="text-slate-200">depth</strong>, <strong class="text-slate-200">leverage</strong>,
+      <strong class="text-slate-200">locality</strong>, and testability at the seam.
+    </p>
+  </header>
+
+  <!-- Project Overview Diagram -->
+  <div class="diagram-container mb-10">
+    <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4 text-center">Current Module Map (coloured by depth signal)</h3>
+    <svg viewBox="0 0 860 320" class="w-full max-w-3xl mx-auto">
+      <defs>
+        <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#475569"/></marker>
+        <marker id="arrowhead-red" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#ef4444"/></marker>
+        <marker id="arrowhead-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#22c55e"/></marker>
+      </defs>
+      <rect x="330" y="12" width="200" height="40" rx="8" fill="rgba(239,68,68,0.10)" stroke="#ef4444" stroke-width="1.5"/>
+      <text x="430" y="37" text-anchor="middle" fill="#fca5a5" font-size="13" font-weight="600">cli.py (939 LOC)</text>
+      <text x="430" y="60" text-anchor="middle" fill="#64748b" font-size="10">shallow: business logic leaks in</text>
+
+      <rect x="20" y="82" width="130" height="36" rx="6" fill="rgba(239,68,68,0.08)" stroke="#f87171" stroke-width="1.2"/>
+      <text x="85" y="105" text-anchor="middle" fill="#fca5a5" font-size="11" font-weight="500">planner.py (597)</text>
+      <rect x="170" y="82" width="130" height="36" rx="6" fill="rgba(239,68,68,0.08)" stroke="#f87171" stroke-width="1.2"/>
+      <text x="235" y="105" text-anchor="middle" fill="#fca5a5" font-size="11" font-weight="500">apply.py (842)</text>
+      <rect x="320" y="82" width="130" height="36" rx="6" fill="rgba(239,68,68,0.08)" stroke="#f87171" stroke-width="1.2"/>
+      <text x="385" y="105" text-anchor="middle" fill="#fca5a5" font-size="11" font-weight="500">sync.py (333)</text>
+      <rect x="470" y="82" width="170" height="36" rx="6" fill="rgba(239,68,68,0.08)" stroke="#f87171" stroke-width="1.2"/>
+      <text x="555" y="105" text-anchor="middle" fill="#fca5a5" font-size="11" font-weight="500">workspace_activation (525)</text>
+      <rect x="660" y="82" width="130" height="36" rx="6" fill="rgba(239,68,68,0.08)" stroke="#f87171" stroke-width="1.2"/>
+      <text x="725" y="105" text-anchor="middle" fill="#fca5a5" font-size="11" font-weight="500">backups.py (849)</text>
+
+      <rect x="90" y="158" width="170" height="36" rx="6" fill="rgba(59,130,246,0.08)" stroke="#60a5fa" stroke-width="1.0"/>
+      <text x="175" y="181" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="500">recommendation_engine (296)</text>
+      <rect x="290" y="158" width="160" height="36" rx="6" fill="rgba(59,130,246,0.08)" stroke="#60a5fa" stroke-width="1.0"/>
+      <text x="370" y="181" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="500">recommendation_store (315)</text>
+      <rect x="480" y="158" width="130" height="36" rx="6" fill="rgba(59,130,246,0.08)" stroke="#60a5fa" stroke-width="1.0"/>
+      <text x="545" y="181" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="500">propose.py (392)</text>
+      <rect x="640" y="158" width="130" height="36" rx="6" fill="rgba(59,130,246,0.08)" stroke="#60a5fa" stroke-width="1.0"/>
+      <text x="705" y="181" text-anchor="middle" fill="#93c5fd" font-size="11" font-weight="500">changes.py (248)</text>
+
+      <rect x="20" y="248" width="100" height="34" rx="6" fill="rgba(34,197,94,0.10)" stroke="#22c55e" stroke-width="1.5"/>
+      <text x="70" y="270" text-anchor="middle" fill="#86efac" font-size="11" font-weight="600">toml_io</text>
+      <rect x="135" y="248" width="100" height="34" rx="6" fill="rgba(34,197,94,0.10)" stroke="#22c55e" stroke-width="1.5"/>
+      <text x="185" y="270" text-anchor="middle" fill="#86efac" font-size="11" font-weight="600">fingerprint</text>
+      <rect x="250" y="248" width="110" height="34" rx="6" fill="rgba(34,197,94,0.10)" stroke="#22c55e" stroke-width="1.5"/>
+      <text x="305" y="270" text-anchor="middle" fill="#86efac" font-size="11" font-weight="600">path_safety</text>
+      <rect x="375" y="248" width="100" height="34" rx="6" fill="rgba(34,197,94,0.10)" stroke="#22c55e" stroke-width="1.5"/>
+      <text x="425" y="270" text-anchor="middle" fill="#86efac" font-size="11" font-weight="600">models</text>
+      <rect x="490" y="248" width="90" height="34" rx="6" fill="rgba(34,197,94,0.10)" stroke="#22c55e" stroke-width="1.5"/>
+      <text x="535" y="270" text-anchor="middle" fill="#86efac" font-size="11" font-weight="600">paths</text>
+      <rect x="595" y="248" width="100" height="34" rx="6" fill="rgba(34,197,94,0.10)" stroke="#22c55e" stroke-width="1.5"/>
+      <text x="645" y="270" text-anchor="middle" fill="#86efac" font-size="11" font-weight="600">scanner</text>
+      <rect x="710" y="248" width="100" height="34" rx="6" fill="rgba(168,85,247,0.10)" stroke="#a855f7" stroke-width="1.5" stroke-dasharray="4,2"/>
+      <text x="760" y="270" text-anchor="middle" fill="#d8b4fe" font-size="11" font-weight="600">fs_tx ★</text>
+      <text x="760" y="292" text-anchor="middle" fill="#6b21a8" font-size="9">(proposed)</text>
+
+      <line x1="430" y1="52" x2="85" y2="82" stroke="#475569" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+      <line x1="430" y1="52" x2="235" y2="82" stroke="#475569" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+      <line x1="430" y1="52" x2="385" y2="82" stroke="#475569" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+      <line x1="430" y1="52" x2="555" y2="82" stroke="#475569" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+      <line x1="430" y1="52" x2="725" y2="82" stroke="#475569" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+      <line x1="235" y1="118" x2="305" y2="248" stroke="#ef4444" stroke-width="2" stroke-dasharray="6,4" fill="none" marker-end="url(#arrowhead-red)"/>
+      <line x1="385" y1="118" x2="305" y2="248" stroke="#ef4444" stroke-width="2" stroke-dasharray="6,4" fill="none" marker-end="url(#arrowhead-red)"/>
+      <line x1="555" y1="118" x2="305" y2="248" stroke="#ef4444" stroke-width="2" stroke-dasharray="6,4" fill="none" marker-end="url(#arrowhead-red)"/>
+      <text x="305" y="180" text-anchor="middle" fill="#ef4444" font-size="9" font-weight="500">3x duplicated</text>
+      <text x="305" y="193" text-anchor="middle" fill="#ef4444" font-size="9" font-weight="500">snapshot/rollback</text>
+      <line x1="760" y1="248" x2="725" y2="118" stroke="#22c55e" stroke-width="2" fill="none" marker-end="url(#arrowhead-green)"/>
+      <line x1="760" y1="248" x2="385" y2="118" stroke="#22c55e" stroke-width="2" fill="none" marker-end="url(#arrowhead-green)"/>
+      <line x1="760" y1="248" x2="555" y2="118" stroke="#22c55e" stroke-width="2" fill="none" marker-end="url(#arrowhead-green)"/>
+    </svg>
+  </div>
+
+  <div class="section-divider"></div>
+
+  <!-- Candidate 1 -->
+  <div class="card card-strong p-8 mb-8">
+    <div class="flex items-start justify-between mb-5">
+      <div>
+        <span class="badge badge-strong mb-3">Strong Recommendation</span>
+        <h2 class="text-2xl font-bold text-amber-300">1. Extract a shared <span class="mono">fs_transaction</span> module</h2>
+        <p class="text-slate-400 mt-1">Collapse triplicated snapshot/rollback primitives behind a single deep module.</p>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-6 mb-6">
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Files</h4>
+        <div class="flex flex-wrap gap-2">
+          <span class="file-tag">apply.py</span>
+          <span class="file-tag">sync.py</span>
+          <span class="file-tag">workspace_activation.py</span>
+          <span class="file-tag">backups.py</span>
+          <span class="file-tag">skill_fs.py</span>
+        </div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2 mt-4">Duplication Count</h4>
+        <table class="info-table">
+          <tr><td>_PathSnapshot class</td><td class="mono text-red-400">3 copies</td></tr>
+          <tr><td>_snapshot_path</td><td class="mono text-red-400">3 copies</td></tr>
+          <tr><td>_restore_snapshot(s)</td><td class="mono text-red-400">3 copies</td></tr>
+          <tr><td>_remove_path</td><td class="mono text-red-400">4 copies</td></tr>
+          <tr><td>_unique_paths</td><td class="mono text-red-400">3 copies</td></tr>
+        </table>
+      </div>
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Problem</h4>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          Every write-path module (apply, sync, workspace activation) implements its own nearly identical
+          snapshot-and-rollback mechanism. These <strong>five private helpers</strong> appear <strong>3–4 times</strong>
+          each, with only tiny variations. A bug fix or edge-case improvement to rollback logic must be
+          replicated in three places, and drift between copies is a silent correctness risk during
+          failure recovery — exactly the scenario where consistency matters most. The
+          <span class="text-red-400">deletion test</span> fails: deleting any one copy does not make
+          complexity vanish; it forces callers to re-implement it.
+        </p>
+      </div>
+    </div>
+    <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4 text-center">Before / After</h4>
+    <div class="grid grid-cols-2 gap-8">
+      <div class="diagram-container">
+        <p class="text-center text-red-400 text-sm font-semibold mb-4">BEFORE — Shallow copies, poor locality</p>
+        <svg viewBox="0 0 300 280" class="w-full mx-auto">
+          <rect x="10" y="10" width="80" height="28" rx="6" fill="rgba(59,130,246,0.10)" stroke="#3b82f6" stroke-width="1"/>
+          <text x="50" y="29" text-anchor="middle" fill="#93c5fd" font-size="10" font-weight="600">apply.py</text>
+          <rect x="10" y="50" width="80" height="28" rx="4" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1"/>
+          <text x="50" y="68" text-anchor="middle" fill="#fca5a5" font-size="9">_snapshot_path</text>
+          <rect x="10" y="82" width="80" height="28" rx="4" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1"/>
+          <text x="50" y="100" text-anchor="middle" fill="#fca5a5" font-size="9">_restore_snapshot</text>
+          <rect x="10" y="114" width="80" height="28" rx="4" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1"/>
+          <text x="50" y="132" text-anchor="middle" fill="#fca5a5" font-size="9">_remove_path</text>
+          <rect x="10" y="146" width="80" height="28" rx="4" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1"/>
+          <text x="50" y="164" text-anchor="middle" fill="#fca5a5" font-size="9">_unique_paths</text>
+          <rect x="110" y="10" width="80" height="28" rx="6" fill="rgba(59,130,246,0.10)" stroke="#3b82f6" stroke-width="1"/>
+          <text x="150" y="29" text-anchor="middle" fill="#93c5fd" font-size="10" font-weight="600">sync.py</text>
+          <rect x="110" y="50" width="80" height="28" rx="4" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1"/>
+          <text x="150" y="68" text-anchor="middle" fill="#fca5a5" font-size="9">_snapshot_path</text>
+          <rect x="110" y="82" width="80" height="28" rx="4" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1"/>
+          <text x="150" y="100" text-anchor="middle" fill="#fca5a5" font-size="9">_restore_snapshot</text>
+          <rect x="110" y="114" width="80" height="28" rx="4" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1"/>
+          <text x="150" y="132" text-anchor="middle" fill="#fca5a5" font-size="9">_remove_path</text>
+          <rect x="110" y="146" width="80" height="28" rx="4" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1"/>
+          <text x="150" y="164" text-anchor="middle" fill="#fca5a5" font-size="9">_unique_paths</text>
+          <rect x="210" y="10" width="80" height="28" rx="6" fill="rgba(59,130,246,0.10)" stroke="#3b82f6" stroke-width="1"/>
+          <text x="250" y="25" text-anchor="middle" fill="#93c5fd" font-size="9" font-weight="600">workspace_</text>
+          <text x="250" y="38" text-anchor="middle" fill="#93c5fd" font-size="9" font-weight="600">activation.py</text>
+          <rect x="210" y="50" width="80" height="28" rx="4" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1"/>
+          <text x="250" y="68" text-anchor="middle" fill="#fca5a5" font-size="9">_snapshot_path</text>
+          <rect x="210" y="82" width="80" height="28" rx="4" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1"/>
+          <text x="250" y="100" text-anchor="middle" fill="#fca5a5" font-size="9">_restore_snapshot</text>
+          <rect x="210" y="114" width="80" height="28" rx="4" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1"/>
+          <text x="250" y="132" text-anchor="middle" fill="#fca5a5" font-size="9">_remove_path</text>
+          <rect x="210" y="146" width="80" height="28" rx="4" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1"/>
+          <text x="250" y="164" text-anchor="middle" fill="#fca5a5" font-size="9">_unique_paths</text>
+          <line x1="90" y1="64" x2="110" y2="64" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="3,3"/>
+          <line x1="190" y1="64" x2="210" y2="64" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="3,3"/>
+          <line x1="90" y1="96" x2="110" y2="96" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="3,3"/>
+          <line x1="190" y1="96" x2="210" y2="96" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="3,3"/>
+          <text x="150" y="210" text-anchor="middle" fill="#94a3b8" font-size="10">Three parallel copies = 3x bug surface</text>
+          <text x="150" y="226" text-anchor="middle" fill="#94a3b8" font-size="10">3x test burden, no leverage</text>
+          <text x="150" y="250" text-anchor="middle" fill="#ef4444" font-size="11" font-weight="600">Depth: LOW (shallow private copies)</text>
+        </svg>
+      </div>
+      <div class="diagram-container">
+        <p class="text-center text-green-400 text-sm font-semibold mb-4">AFTER — Deep module, single seam</p>
+        <svg viewBox="0 0 300 280" class="w-full mx-auto">
+          <rect x="10" y="10" width="80" height="28" rx="6" fill="rgba(59,130,246,0.10)" stroke="#3b82f6" stroke-width="1"/>
+          <text x="50" y="29" text-anchor="middle" fill="#93c5fd" font-size="10" font-weight="600">apply.py</text>
+          <rect x="110" y="10" width="80" height="28" rx="6" fill="rgba(59,130,246,0.10)" stroke="#3b82f6" stroke-width="1"/>
+          <text x="150" y="29" text-anchor="middle" fill="#93c5fd" font-size="10" font-weight="600">sync.py</text>
+          <rect x="210" y="10" width="80" height="28" rx="6" fill="rgba(59,130,246,0.10)" stroke="#3b82f6" stroke-width="1"/>
+          <text x="250" y="25" text-anchor="middle" fill="#93c5fd" font-size="9" font-weight="600">workspace_</text>
+          <text x="250" y="38" text-anchor="middle" fill="#93c5fd" font-size="9" font-weight="600">activation.py</text>
+          <line x1="50" y1="38" x2="150" y2="80" stroke="#22c55e" stroke-width="1.5"/>
+          <line x1="150" y1="38" x2="150" y2="80" stroke="#22c55e" stroke-width="1.5"/>
+          <line x1="250" y1="48" x2="150" y2="80" stroke="#22c55e" stroke-width="1.5"/>
+          <rect x="55" y="80" width="190" height="110" rx="10" fill="rgba(34,197,94,0.08)" stroke="#22c55e" stroke-width="2"/>
+          <text x="150" y="102" text-anchor="middle" fill="#86efac" font-size="13" font-weight="700">fs_transaction.py</text>
+          <text x="150" y="118" text-anchor="middle" fill="#4ade80" font-size="10">atomic snapshot -&gt; execute -&gt; rollback</text>
+          <line x1="70" y1="128" x2="230" y2="128" stroke="#22c55e" stroke-width="0.5" opacity="0.3"/>
+          <text x="80" y="148" fill="#86efac" font-size="10" font-family="JetBrains Mono">capture_snapshot(paths)</text>
+          <text x="80" y="164" fill="#86efac" font-size="10" font-family="JetBrains Mono">restore_snapshot(snap)</text>
+          <text x="80" y="180" fill="#86efac" font-size="10" font-family="JetBrains Mono">transaction(paths, body)</text>
+          <text x="150" y="225" text-anchor="middle" fill="#94a3b8" font-size="10">Fix once -&gt; fixed everywhere</text>
+          <text x="150" y="241" text-anchor="middle" fill="#94a3b8" font-size="10">Single test surface; atomicity guarantee</text>
+          <text x="150" y="265" text-anchor="middle" fill="#22c55e" font-size="11" font-weight="600">Depth: HIGH (small interface, heavy lifting)</text>
+        </svg>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-6 mt-6">
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Solution</h4>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          Create a new <span class="mono text-purple-300">fs_transaction.py</span> module exposing a
+          small interface — a <span class="mono text-slate-200">transaction(snapshot_paths, body)</span>
+          context manager plus <span class="mono text-slate-200">atomic_replace_dir</span>. All three write-path
+          modules call into it. The existing private helpers in apply.py, sync.py, and workspace_activation.py
+          are deleted. skill_fs.py's <span class="mono">replace_skill_folder_atomic</span> becomes a thin
+          adapter or moves into the same module.
+        </p>
+      </div>
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Benefits (leverage &amp; locality)</h4>
+        <ul class="text-slate-300 text-sm space-y-1.5 leading-relaxed">
+          <li><span class="text-green-400">&#9656;</span> <strong>Locality</strong>: rollback bugs fixed in one file, not three.</li>
+          <li><span class="text-green-400">&#9656;</span> <strong>Leverage</strong>: 1 test surface instead of 3; new write paths get atomic rollback for free.</li>
+          <li><span class="text-green-400">&#9656;</span> <strong>Testability</strong>: transactional FS semantics unit-tested once with temp dirs.</li>
+          <li><span class="text-green-400">&#9656;</span> <strong>Deletion test</strong>: deleting fs_transaction would force all three callers to re-implement rollback — it earns its keep.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Candidate 2 -->
+  <div class="card card-strong p-8 mb-8">
+    <div class="flex items-start justify-between mb-5">
+      <div>
+        <span class="badge badge-strong mb-3">Strong Recommendation</span>
+        <h2 class="text-2xl font-bold text-amber-300">2. Introduce a Host Adapter seam</h2>
+        <p class="text-slate-400 mt-1">Replace 26+ scattered <span class="mono">if host == "codex"</span> checks with a two-adapter seam.</p>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-6 mb-6">
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Files</h4>
+        <div class="flex flex-wrap gap-2">
+          <span class="file-tag">planner.py</span>
+          <span class="file-tag">apply.py</span>
+          <span class="file-tag">cli.py</span>
+          <span class="file-tag">workspace_activation.py</span>
+          <span class="file-tag">host_paths.py</span>
+          <span class="file-tag">backups.py</span>
+          <span class="file-tag">codex_config.py</span>
+          <span class="file-tag">_archive.py</span>
+        </div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2 mt-4">Host Branch Count</h4>
+        <table class="info-table">
+          <tr><td>apply.py</td><td class="mono text-red-400">9 branches</td></tr>
+          <tr><td>cli.py</td><td class="mono text-red-400">6 branches</td></tr>
+          <tr><td>planner.py</td><td class="mono text-red-400">3 branches</td></tr>
+          <tr><td>workspace_activation.py</td><td class="mono text-red-400">5 branches</td></tr>
+          <tr><td>Other modules</td><td class="mono text-red-400">3 branches</td></tr>
+        </table>
+      </div>
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Problem</h4>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          Host differences (Codex config-write vs Claude archive-move) leak into every layer.
+          The planner produces <em>different operation lists</em> per host, apply contains
+          <em>different execution phases</em> per host, and validation contains host-specific
+          guards. This is a <strong>real seam</strong> — two concrete adapters already exist
+          (codex_config.py and _archive.py) — but the dispatch logic is spread across
+          <strong>7+ modules</strong> rather than concentrated behind an interface. Adding a
+          third host (e.g. Cursor, Windsurf) would require touching every module.
+        </p>
+      </div>
+    </div>
+    <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4 text-center">Before / After — Call Graph</h4>
+    <div class="grid grid-cols-2 gap-8">
+      <div class="diagram-container">
+        <p class="text-center text-red-400 text-sm font-semibold mb-3">BEFORE — Branching everywhere</p>
+        <div class="mermaid">
+flowchart TD
+    CLI[cli.py] -->|if host==codex| P1[plan: codex ops]
+    CLI -->|if host==claude| P2[plan: claude ops]
+    P1 --> APP[apply.py]
+    P2 --> APP
+    APP -->|if host==codex| CFG[disable in codex_config]
+    APP -->|if host==claude| ARC[move to _archive]
+    APP -->|if host==codex| B1[backup config]
+    APP -->|if host==claude| B2[no config backup]
+    VAL[validate_plan] -->|if host==codex| V1[codex validators]
+    VAL -->|if host==claude| V2[claude validators]
+    WA[workspace_activation] -->|if host==codex| W1[.agents/skills]
+    WA -->|if host==claude| W2[.claude/skills]
+    style CLI fill:#1e3a5f,stroke:#3b82f6,color:#93c5fd
+    style APP fill:#4a1c1c,stroke:#ef4444,color:#fca5a5
+    style VAL fill:#4a1c1c,stroke:#ef4444,color:#fca5a5
+    style WA fill:#4a1c1c,stroke:#ef4444,color:#fca5a5
+        </div>
+      </div>
+      <div class="diagram-container">
+        <p class="text-center text-green-400 text-sm font-semibold mb-3">AFTER — Adapter seam concentrates branching</p>
+        <div class="mermaid">
+flowchart TD
+    CLI[cli.py] --> PLAN[planner.py]
+    PLAN --> APP[apply.py]
+    APP --> HA{Host Adapter}
+    HA -->|codex| CAD[CodexAdapter]
+    HA -->|claude| CLA[ClaudeAdapter]
+    CAD --> CFG[codex_config.py]
+    CLA --> ARC[_archive.py]
+    WA[workspace_activation] --> HA
+    style CLI fill:#1e3a5f,stroke:#3b82f6,color:#93c5fd
+    style PLAN fill:#1e3a5f,stroke:#3b82f6,color:#93c5fd
+    style APP fill:#1e3a5f,stroke:#3b82f6,color:#93c5fd
+    style WA fill:#1e3a5f,stroke:#3b82f6,color:#93c5fd
+    style HA fill:#1a3320,stroke:#22c55e,color:#86efac
+    style CAD fill:#1a3320,stroke:#22c55e,color:#86efac
+    style CLA fill:#1a3320,stroke:#22c55e,color:#86efac
+        </div>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-6 mt-6">
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Solution</h4>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          Define a <span class="mono text-purple-300">HostAdapter</span> interface that captures
+          host-varying operations: <span class="mono">plan_operations()</span>,
+          <span class="mono">execute_disable()</span>, <span class="mono">skill_root_namespace()</span>,
+          <span class="mono">backup_targets()</span>, <span class="mono">validate_for_host()</span>.
+          Two adapters implement it: <span class="mono">CodexAdapter</span> (wrapping codex_config.py) and
+          <span class="mono">ClaudeAdapter</span> (wrapping _archive.py). Planner, apply, workspace_activation
+          take a HostAdapter and call its interface instead of branching on string comparisons.
+        </p>
+      </div>
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Benefits</h4>
+        <ul class="text-slate-300 text-sm space-y-1.5 leading-relaxed">
+          <li><span class="text-green-400">&#9656;</span> <strong>Locality</strong>: host-specific logic moves to one file per host.</li>
+          <li><span class="text-green-400">&#9656;</span> <strong>Leverage</strong>: adding a third host is one new adapter, not seven file edits.</li>
+          <li><span class="text-green-400">&#9656;</span> <strong>Testability</strong>: adapters tested in isolation; core planner/apply become host-agnostic.</li>
+          <li><span class="text-green-400">&#9656;</span> <strong>Real seam</strong>: two adapters already exist — the principle says this is a real seam.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Candidate 3 -->
+  <div class="card card-worth p-8 mb-8">
+    <div class="flex items-start justify-between mb-5">
+      <div>
+        <span class="badge badge-worth mb-3">Worth Exploring</span>
+        <h2 class="text-2xl font-bold text-blue-300">3. Consolidate validation helpers through <span class="mono">path_safety</span></h2>
+        <p class="text-slate-400 mt-1">Five duplicated <span class="mono">_safe_component</span> copies; one thorough implementation already exists.</p>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-6 mb-6">
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Files with duplicated validators</h4>
+        <div class="flex flex-wrap gap-2">
+          <span class="file-tag">planner.py</span>
+          <span class="file-tag">apply.py</span>
+          <span class="file-tag">cli.py</span>
+          <span class="file-tag">workspace_activation.py</span>
+          <span class="file-tag">pack_inspect.py</span>
+          <span class="file-tag">pointer.py</span>
+        </div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2 mt-4">Canonical module exists</h4>
+        <div class="flex flex-wrap gap-2">
+          <span class="file-tag text-green-400" style="border-color:rgb(21 128 61);color:#86efac">path_safety.py</span>
+        </div>
+      </div>
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Problem</h4>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          <span class="mono text-green-300">path_safety.safe_component()</span> implements the most thorough
+          checks (Windows reserved names, colons, trailing dots/spaces, length limits). Yet five other
+          modules each define their own weaker <span class="mono">_safe_component</span>, and two more define
+          <span class="mono">_safe_pointer_skill</span>. The same applies to <span class="mono">_ensure_under</span> (3 copies),
+          <span class="mono">_required_path</span> (3 copies), <span class="mono">_operations_of_kind</span>
+          (3 copies), and <span class="mono">_single_operation</span> (2 copies). These are not deep —
+          they are pass-throughs that exist because the canonical module is not used consistently.
+        </p>
+      </div>
+    </div>
+    <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4 text-center">Validator Depth Comparison</h4>
+    <div class="diagram-container mb-4">
+      <div class="space-y-3">
+        <div>
+          <div class="flex justify-between text-sm mb-1"><span class="mono text-slate-400">path_safety.safe_component</span><span class="text-green-400 font-semibold">thorough (canonical)</span></div>
+          <div class="depth-bar"><div class="depth-bar-fill bg-green-500" style="width:95%"></div></div>
+        </div>
+        <div>
+          <div class="flex justify-between text-sm mb-1"><span class="mono text-slate-400">planner._safe_component</span><span class="text-yellow-400">delegates to path_safety</span></div>
+          <div class="depth-bar"><div class="depth-bar-fill bg-yellow-500" style="width:90%"></div></div>
+        </div>
+        <div>
+          <div class="flex justify-between text-sm mb-1"><span class="mono text-slate-400">apply._safe_component</span><span class="text-yellow-400">delegates to path_safety</span></div>
+          <div class="depth-bar"><div class="depth-bar-fill bg-yellow-500" style="width:90%"></div></div>
+        </div>
+        <div>
+          <div class="flex justify-between text-sm mb-1"><span class="mono text-slate-400">workspace_activation._safe_component</span><span class="text-red-400">re-implements subset</span></div>
+          <div class="depth-bar"><div class="depth-bar-fill bg-red-500" style="width:50%"></div></div>
+        </div>
+        <div>
+          <div class="flex justify-between text-sm mb-1"><span class="mono text-slate-400">pack_inspect._safe_component</span><span class="text-red-400">re-implements subset</span></div>
+          <div class="depth-bar"><div class="depth-bar-fill bg-red-500" style="width:40%"></div></div>
+        </div>
+        <div>
+          <div class="flex justify-between text-sm mb-1"><span class="mono text-slate-400">cli._safe_component</span><span class="text-red-400">re-implements subset</span></div>
+          <div class="depth-bar"><div class="depth-bar-fill bg-red-500" style="width:35%"></div></div>
+        </div>
+        <div>
+          <div class="flex justify-between text-sm mb-1"><span class="mono text-slate-400">pointer._safe_pointer_skill_name</span><span class="text-red-400">duplicate logic</span></div>
+          <div class="depth-bar"><div class="depth-bar-fill bg-red-500" style="width:45%"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-6 mt-4">
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Solution</h4>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          Make <span class="mono text-green-300">path_safety.py</span> the single seam for all
+          path/component validation. Add <span class="mono">safe_pointer_skill()</span>,
+          <span class="mono">ensure_under()</span>, <span class="mono">require_path()</span>,
+          and plan helpers like <span class="mono">operations_of_kind()</span>. Delete all
+          private duplicates. Callers import from the canonical module.
+        </p>
+      </div>
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Benefits</h4>
+        <ul class="text-slate-300 text-sm space-y-1.5 leading-relaxed">
+          <li><span class="text-green-400">&#9656;</span> <strong>Locality</strong>: one place to fix path-safety bugs or tighten validation.</li>
+          <li><span class="text-green-400">&#9656;</span> <strong>Security</strong>: no weak-validator bypass — all names go through thorough checks.</li>
+          <li><span class="text-green-400">&#9656;</span> <strong>Test surface</strong>: one test module instead of six; reduces ~120 lines of duplication.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Candidate 4 -->
+  <div class="card card-worth p-8 mb-8">
+    <div class="flex items-start justify-between mb-5">
+      <div>
+        <span class="badge badge-worth mb-3">Worth Exploring</span>
+        <h2 class="text-2xl font-bold text-blue-300">4. Move CLI business logic into deeper modules</h2>
+        <p class="text-slate-400 mt-1"><span class="mono">cli.py</span> at 939 lines contains domain logic that belongs behind library seams.</p>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-6 mb-6">
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">CLI functions containing domain logic</h4>
+        <div class="space-y-1 mono text-xs">
+          <div class="flex justify-between px-2 py-1 bg-slate-800/50 rounded"><span>_validate_recommendation_selection</span><span class="text-red-400">33 LOC</span></div>
+          <div class="flex justify-between px-2 py-1 bg-slate-800/50 rounded"><span>_manifest_valid_selection_events</span><span class="text-red-400">28 LOC</span></div>
+          <div class="flex justify-between px-2 py-1 bg-slate-800/50 rounded"><span>_validate_scenario_label_argument</span><span class="text-red-400">9 LOC</span></div>
+          <div class="flex justify-between px-2 py-1 bg-slate-800/50 rounded"><span>_runtime_manifest_fingerprint</span><span class="text-red-400">10 LOC</span></div>
+          <div class="flex justify-between px-2 py-1 bg-slate-800/50 rounded"><span>_context_from_plan</span><span class="text-red-400">15 LOC</span></div>
+          <div class="flex justify-between px-2 py-1 bg-slate-800/50 rounded"><span>_redact_local_paths / _path_variants</span><span class="text-red-400">27 LOC</span></div>
+          <div class="flex justify-between px-2 py-1 bg-slate-800/50 rounded"><span>_disabled_paths_from_config</span><span class="text-red-400">18 LOC</span></div>
+          <div class="flex justify-between px-2 py-1 bg-slate-800/50 rounded"><span>_annotate_backup_metadata</span><span class="text-red-400">20 LOC</span></div>
+        </div>
+      </div>
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Problem</h4>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          CLI handlers should be thin: parse args → call library → print output. But <span class="mono">cli.py</span>
+          contains significant domain logic — selection validation, fingerprint computation, plan context
+          extraction, path redaction, backup metadata annotation. These
+          functions are <strong>untestable through the CLI interface</strong> (they require argparse
+          setup and stdout capture) even though they contain pure logic that could be unit-tested
+          directly. The CLI module is 939 lines when it should be ~400.
+        </p>
+      </div>
+    </div>
+    <div class="diagram-container mb-4">
+      <h4 class="text-center text-sm font-semibold text-slate-400 mb-4">Before / After — CLI Responsibility Split</h4>
+      <div class="grid grid-cols-2 gap-8">
+        <div>
+          <p class="text-center text-red-400 text-sm font-semibold mb-3">BEFORE</p>
+          <svg viewBox="0 0 260 200" class="w-full">
+            <rect x="20" y="10" width="220" height="180" rx="10" fill="rgba(239,68,68,0.06)" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="4,4"/>
+            <text x="130" y="32" text-anchor="middle" fill="#fca5a5" font-size="12" font-weight="700">cli.py (939 LOC)</text>
+            <rect x="35" y="45" width="190" height="24" rx="4" fill="rgba(59,130,246,0.15)" stroke="#3b82f6" stroke-width="1"/>
+            <text x="130" y="62" text-anchor="middle" fill="#93c5fd" font-size="10">argparse setup</text>
+            <rect x="35" y="75" width="190" height="24" rx="4" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1"/>
+            <text x="130" y="92" text-anchor="middle" fill="#fca5a5" font-size="10">selection validation</text>
+            <rect x="35" y="105" width="190" height="24" rx="4" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1"/>
+            <text x="130" y="122" text-anchor="middle" fill="#fca5a5" font-size="10">fingerprint computation</text>
+            <rect x="35" y="135" width="190" height="24" rx="4" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1"/>
+            <text x="130" y="152" text-anchor="middle" fill="#fca5a5" font-size="10">path redaction</text>
+            <rect x="35" y="165" width="190" height="20" rx="4" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1"/>
+            <text x="130" y="180" text-anchor="middle" fill="#fca5a5" font-size="10">format/print helpers</text>
+          </svg>
+        </div>
+        <div>
+          <p class="text-center text-green-400 text-sm font-semibold mb-3">AFTER</p>
+          <svg viewBox="0 0 260 200" class="w-full">
+            <rect x="20" y="10" width="220" height="55" rx="10" fill="rgba(34,197,94,0.06)" stroke="#22c55e" stroke-width="1.5"/>
+            <text x="130" y="32" text-anchor="middle" fill="#86efac" font-size="12" font-weight="700">cli.py (~400 LOC)</text>
+            <text x="130" y="52" text-anchor="middle" fill="#4ade80" font-size="10">parse -&gt; call -&gt; print</text>
+            <line x1="130" y1="65" x2="130" y2="80" stroke="#22c55e" stroke-width="1.5"/>
+            <rect x="20" y="80" width="100" height="50" rx="6" fill="rgba(168,85,247,0.10)" stroke="#a855f7" stroke-width="1.2"/>
+            <text x="70" y="100" text-anchor="middle" fill="#d8b4fe" font-size="10" font-weight="600">recommendation_</text>
+            <text x="70" y="113" text-anchor="middle" fill="#d8b4fe" font-size="10" font-weight="600">store.py (deepened)</text>
+            <rect x="140" y="80" width="100" height="50" rx="6" fill="rgba(168,85,247,0.10)" stroke="#a855f7" stroke-width="1.2"/>
+            <text x="190" y="100" text-anchor="middle" fill="#d8b4fe" font-size="10" font-weight="600">redaction.py</text>
+            <text x="190" y="113" text-anchor="middle" fill="#d8b4fe" font-size="10">(new, small)</text>
+            <rect x="20" y="145" width="100" height="40" rx="6" fill="rgba(168,85,247,0.10)" stroke="#a855f7" stroke-width="1.2"/>
+            <text x="70" y="162" text-anchor="middle" fill="#d8b4fe" font-size="10" font-weight="600">manifest.py</text>
+            <text x="70" y="175" text-anchor="middle" fill="#d8b4fe" font-size="9">(fingerprint moves here)</text>
+            <rect x="140" y="145" width="100" height="40" rx="6" fill="rgba(168,85,247,0.10)" stroke="#a855f7" stroke-width="1.2"/>
+            <text x="190" y="162" text-anchor="middle" fill="#d8b4fe" font-size="10" font-weight="600">planner.py</text>
+            <text x="190" y="175" text-anchor="middle" fill="#d8b4fe" font-size="9">(context extraction)</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-6 mt-4">
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Solution</h4>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          Move pure domain logic out of cli.py into the modules that own those concepts: selection
+          validation → <span class="mono text-purple-300">recommendation_store.py</span>; manifest
+          fingerprint → <span class="mono text-purple-300">manifest.py</span>; plan context extraction →
+          <span class="mono text-purple-300">planner.py</span>; path redaction → a small new
+          <span class="mono text-purple-300">redaction.py</span>. CLI handlers become thin wrappers
+          that call the library and format output.
+        </p>
+      </div>
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Benefits</h4>
+        <ul class="text-slate-300 text-sm space-y-1.5 leading-relaxed">
+          <li><span class="text-green-400">&#9656;</span> <strong>Testability</strong>: domain logic becomes directly unit-testable without CLI harness.</li>
+          <li><span class="text-green-400">&#9656;</span> <strong>Locality</strong>: recommendation validation lives near the recommendation store, not the CLI parser.</li>
+          <li><span class="text-green-400">&#9656;</span> <strong>Leverage</strong>: other entry points (future Python API or MCP server) can call the same logic.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Candidate 5 -->
+  <div class="card card-spec p-8 mb-8">
+    <div class="flex items-start justify-between mb-5">
+      <div>
+        <span class="badge badge-spec mb-3">Speculative</span>
+        <h2 class="text-2xl font-bold text-slate-300">5. Split <span class="mono">backups.py</span> (849 LOC) into record management vs restore execution</h2>
+        <p class="text-slate-400 mt-1">The largest module mixes three concerns: backup creation, metadata/record-keeping, and restore execution.</p>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-6 mb-6">
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Concerns mixed in backups.py</h4>
+        <div class="space-y-2 text-sm">
+          <div class="p-2 bg-slate-800/50 rounded border border-slate-700">
+            <div class="text-blue-300 font-semibold text-xs">BACKUP CREATION</div>
+            <div class="text-slate-400 text-xs mono">create_backup, snapshot logic</div>
+          </div>
+          <div class="p-2 bg-slate-800/50 rounded border border-slate-700">
+            <div class="text-purple-300 font-semibold text-xs">RECORD / METADATA</div>
+            <div class="text-slate-400 text-xs mono">list_backups, prune_backups, metadata read/write</div>
+          </div>
+          <div class="p-2 bg-slate-800/50 rounded border border-slate-700">
+            <div class="text-amber-300 font-semibold text-xs">RESTORE EXECUTION</div>
+            <div class="text-slate-400 text-xs mono">restore_backup, rollback, Claude archive restore</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Problem</h4>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          At 849 lines, backups.py is the largest module. It mixes three concerns
+          that change for different reasons: listing/pruning backups (read-only),
+          creating backups (write on apply), and restoring backups (write on restore).
+          It also has its own snapshot helper and a lazy import of
+          <span class="mono">_archive</span> (suggesting circular dependency pressure).
+          Claude-specific archive-restore entries are embedded here rather than behind a host adapter.
+        </p>
+        <p class="text-slate-400 text-sm mt-3"><em>Speculative because it depends on candidate #2 (host adapter) being done first.</em></p>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-6">
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Solution</h4>
+        <p class="text-slate-300 text-sm leading-relaxed">
+          After the host adapter seam exists, split backups.py into:
+          <span class="mono text-purple-300">backup_records.py</span> (list, prune, metadata I/O),
+          <span class="mono text-purple-300">backup_create.py</span> (creation, leveraging fs_transaction),
+          and <span class="mono text-purple-300">restore.py</span> (restore execution, delegating to the adapter).
+        </p>
+      </div>
+      <div>
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">Benefits</h4>
+        <ul class="text-slate-300 text-sm space-y-1.5 leading-relaxed">
+          <li><span class="text-green-400">&#9656;</span> <strong>Locality</strong>: backup listing tests don't import restore execution machinery.</li>
+          <li><span class="text-green-400">&#9656;</span> <strong>Depth</strong>: each module has a smaller interface and clearer responsibility.</li>
+          <li><span class="text-green-400">&#9656;</span> <strong>Circular deps</strong>: splitting may resolve the lazy-import pattern.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-divider"></div>
+
+  <!-- Top Recommendation -->
+  <div class="top-pick p-8 mb-8">
+    <div class="flex items-center gap-3 mb-5">
+      <div class="w-10 h-10 rounded-full bg-amber-500/20 border-2 border-amber-500 flex items-center justify-center text-amber-400 font-bold text-lg">1</div>
+      <div>
+        <h2 class="text-2xl font-bold text-amber-300 glow-text">Top Recommendation</h2>
+        <p class="text-amber-200/70 text-sm">Start with <strong>fs_transaction</strong> (Candidate 1)</p>
+      </div>
+    </div>
+    <div class="grid grid-cols-3 gap-6 mb-6">
+      <div class="bg-slate-900/50 rounded-xl p-5 border border-amber-500/20">
+        <div class="text-amber-400 text-3xl font-bold mb-1">~120</div>
+        <div class="text-slate-400 text-sm">lines of dead duplication eliminated</div>
+      </div>
+      <div class="bg-slate-900/50 rounded-xl p-5 border border-amber-500/20">
+        <div class="text-amber-400 text-3xl font-bold mb-1">3 &rarr; 1</div>
+        <div class="text-slate-400 text-sm">test surfaces for atomic rollback</div>
+      </div>
+      <div class="bg-slate-900/50 rounded-xl p-5 border border-amber-500/20">
+        <div class="text-amber-400 text-3xl font-bold mb-1">Lowest</div>
+        <div class="text-slate-400 text-sm">risk / highest immediate leverage</div>
+      </div>
+    </div>
+    <div class="text-slate-300 text-sm leading-relaxed space-y-3">
+      <p>The <strong>fs_transaction</strong> extract is the ideal starting point because:</p>
+      <ol class="list-decimal list-inside space-y-2 text-slate-300">
+        <li><strong>No interface design risk</strong> — the existing three copies reveal the exact interface needed. The shape of the seam is already proven by usage.</li>
+        <li><strong>No semantic changes</strong> — this is a pure refactoring. The new module is a mechanical extract with existing tests as the safety net.</li>
+        <li><strong>Unblocks candidate #2</strong> — once atomic FS operations are behind a single seam, the host adapter can compose with it cleanly.</li>
+        <li><strong>Deletion test passes loudly</strong> — removing fs_transaction would force every write-path module to re-implement snapshot/rollback. It earns its keep immediately.</li>
+        <li><strong>Improves AI-navigability</strong> — currently an agent exploring rollback behavior must read 3 files; after the extract, one module contains the entire story.</li>
+      </ol>
+      <p class="text-slate-400 mt-4">
+        Recommended sequence: <strong>fs_transaction &rarr; host adapter &rarr; validation consolidation &rarr; CLI slimming &rarr; backups split</strong>.
+        Each step is independently mergeable and leaves the codebase in a better state.
+      </p>
+    </div>
+  </div>
+
+  <footer class="text-center text-slate-500 text-sm pb-8">
+    <p>Architecture review generated 2026-06-24 &middot; SOS codebase ~6,575 LOC across 26 modules</p>
+    <p class="mt-1 text-xs text-slate-600">Vocabulary: module &middot; interface &middot; depth &middot; seam &middot; adapter &middot; leverage &middot; locality</p>
+  </footer>
+
+</div>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { primaryColor: '#1e3a5f', primaryTextColor: '#93c5fd', primaryBorderColor: '#3b82f6', lineColor: '#475569', secondaryColor: '#1a2332', tertiaryColor: '#0f172a' } });
+</script>
+</body>
+</html>
