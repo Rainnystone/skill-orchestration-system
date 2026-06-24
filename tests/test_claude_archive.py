@@ -184,13 +184,14 @@ def test_apply_rollback_moves_archive_back_on_failure(tmp_path, monkeypatch):
     )
 
     # Force failure by wrapping the executor to do its work then raise.
-    original_execute = apply_module.execute_move_to_archive
+    from sos import host_adapter as host_adapter_module
+    original_execute = host_adapter_module.execute_move_to_archive
 
     def failing_execute(operation, journal):
         original_execute(operation, journal)
         raise RuntimeError("simulated mid-apply failure")
 
-    monkeypatch.setattr(apply_module, "execute_move_to_archive", failing_execute)
+    monkeypatch.setattr(host_adapter_module, "execute_move_to_archive", failing_execute)
 
     result = apply_write_plan(
         plan,
@@ -236,7 +237,8 @@ def test_apply_rollback_unwinds_only_completed_archive_moves(tmp_path, monkeypat
         runtime_paths, skill_root, codex_config_path, proposals, host="claude"
     )
 
-    original_execute = apply_module.execute_move_to_archive
+    from sos import host_adapter as host_adapter_module
+    original_execute = host_adapter_module.execute_move_to_archive
     call_count = {"n": 0}
 
     def fail_on_second(operation, journal):
@@ -245,7 +247,7 @@ def test_apply_rollback_unwinds_only_completed_archive_moves(tmp_path, monkeypat
             raise RuntimeError("simulated mid-archive failure")
         original_execute(operation, journal)
 
-    monkeypatch.setattr(apply_module, "execute_move_to_archive", fail_on_second)
+    monkeypatch.setattr(host_adapter_module, "execute_move_to_archive", fail_on_second)
 
     result = apply_write_plan(
         plan,

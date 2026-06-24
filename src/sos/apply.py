@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 import shutil
-import tempfile
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from sos._archive import ARCHIVE_DIR_NAME, ArchiveMove, execute_move_to_archive, rollback_archive_moves
+from sos._archive import ARCHIVE_DIR_NAME, ArchiveMove, rollback_archive_moves
 from sos.active_namespace import validate_active_skill_namespace
 from sos.backups import create_backup, record_claude_archive_restore_entries
 from sos.codex_config import disable_skill_paths_with_backup
 from sos.fingerprint import fingerprint_dir
+from sos.fs_transaction import (
+    PathSnapshot,
+    remove_path,
+    restore_snapshots,
+    snapshot_paths,
+    unique_paths,
+)
+from sos.host_adapter import HostAdapter, HostValidation, host_adapter_for
 from sos.manifest import (
     load_registry,
     save_pack_manifest,
@@ -27,8 +34,15 @@ from sos.models import (
     WriteOperation,
     WritePlan,
 )
-from sos.path_safety import reject_component_collisions, safe_component
+from sos.path_safety import (
+    ensure_under,
+    reject_component_collisions,
+    required_path,
+    safe_component,
+    safe_pointer_skill,
+)
 from sos.paths import RuntimePaths
+from sos.plan_ops import operations_of_kind, single_operation
 from sos.pointer import render_v1_active_skills
 from sos.skill_fs import replace_skill_folder_atomic, validate_skill_folder
 
@@ -60,13 +74,6 @@ class _DeleteSourceCandidate:
     path: Path
     pack_id: str
     skill_name: str
-
-
-@dataclass(frozen=True)
-class _PathSnapshot:
-    path: Path
-    kind: str
-    backup_path: Path | None = None
 
 
 _OPERATION_PHASES = {
@@ -103,7 +110,8 @@ def apply_write_plan(
         )
     config_path = Path(codex_config_path)
     active_root = Path(active_skill_root)
-    validated = _validate_plan(plan, runtime_paths, config_path, active_root, host)
+    adapter = host_adapter_for(host)
+    validated = _validate_plan(plan, runtime_paths, config_path, active_root, adapter)
     source_deletion_paths = _validated_source_deletion_paths(
         validated.delete_source_candidates,
         apply=apply,
@@ -128,29 +136,25 @@ def apply_write_plan(
         source_deletion_paths,
     )
     archive_journal: list[ArchiveMove] = []
-    archive_map: dict[Path, Path] = {}
 
     try:
-        for operation in _operations_of_kind(plan, OperationKind.COPY_SKILL):
+        for operation in operations_of_kind(plan, OperationKind.COPY_SKILL):
             replace_skill_folder_atomic(
-                _required_path(operation.source),
-                _required_path(operation.target),
+                required_path(operation.source),
+                required_path(operation.target),
             )
 
-        if host == "claude":
-            for operation in _operations_of_kind(plan, OperationKind.MOVE_TO_ARCHIVE):
-                execute_move_to_archive(operation, archive_journal)
-                archive_map[_required_path(operation.source)] = _required_path(operation.target)
+        archive_map = adapter.execute_archive_moves(plan, archive_journal)
 
         baselined_manifests = _with_initial_fingerprints(
             validated.manifests, archive_map=archive_map
         )
         for operation, manifest in zip(
-            _operations_of_kind(plan, OperationKind.WRITE_MANIFEST),
+            operations_of_kind(plan, OperationKind.WRITE_MANIFEST),
             baselined_manifests,
             strict=True,
         ):
-            save_pack_manifest(_required_path(operation.target), manifest)
+            save_pack_manifest(required_path(operation.target), manifest)
 
         registry = update_registry_after_apply(
             Registry(),
@@ -159,36 +163,27 @@ def apply_write_plan(
             backup.backup_id,
         )
         validate_registry(registry)
-        registry_operation = _single_operation(plan, OperationKind.WRITE_REGISTRY)
-        save_registry(_required_path(registry_operation.target), registry)
+        registry_operation = single_operation(plan, OperationKind.WRITE_REGISTRY)
+        save_registry(required_path(registry_operation.target), registry)
 
         render_v1_active_skills(active_root, registry, baselined_manifests)
 
-        if host == "codex":
-            config_backup_path = backup.config_path or (
-                runtime_paths.backups / backup.backup_id / "config.toml"
-            )
-            disable_skill_paths_with_backup(
-                config_path,
-                validated.disabled_skill_md_paths,
-                backup_path=config_backup_path,
-                apply=True,
-            )
+        adapter.execute_post_pointer_disable(
+            plan,
+            config_path,
+            backup.config_path or (runtime_paths.backups / backup.backup_id / "config.toml"),
+            validated.disabled_skill_md_paths,
+        )
 
         for path in source_deletion_paths:
-            _remove_path(path)
+            remove_path(path)
 
-        if host == "claude":
-            record_claude_archive_restore_entries(
-                runtime_paths,
-                backup.backup_id,
-                baselined_manifests,
-            )
+        adapter.post_apply(runtime_paths, backup.backup_id, baselined_manifests)
     except Exception as error:
         rollback_message = ""
         try:
             rollback_archive_moves(tuple(archive_journal))
-            _restore_snapshots(snapshots)
+            restore_snapshots(snapshots)
         except Exception as rollback_error:
             rollback_message = f"; rollback failed: {rollback_error}"
         return ApplyResult(
@@ -240,21 +235,24 @@ def _snapshot_apply_targets(
     validated: _ValidatedPlan,
     config_path: Path,
     source_deletion_paths: tuple[Path, ...],
-) -> tuple[tuple[_PathSnapshot, ...], Path]:
-    snapshot_root = Path(tempfile.mkdtemp(prefix="sos-apply-rollback-"))
-    snapshots = tuple(
-        _snapshot_path(path, snapshot_root, index)
-        for index, path in enumerate(
-            _unique_paths(
-                (
-                    *_rollback_target_paths(plan, validated),
-                    config_path,
-                    *source_deletion_paths,
-                )
-            )
+) -> tuple[tuple[PathSnapshot, ...], Path]:
+    targets = _unique_paths_for_apply(plan, validated, config_path, source_deletion_paths)
+    return snapshot_paths(targets, prefix="sos-apply-rollback-")
+
+
+def _unique_paths_for_apply(
+    plan: WritePlan,
+    validated: _ValidatedPlan,
+    config_path: Path,
+    source_deletion_paths: tuple[Path, ...],
+) -> tuple[Path, ...]:
+    return unique_paths(
+        (
+            *_rollback_target_paths(plan, validated),
+            config_path,
+            *source_deletion_paths,
         )
     )
-    return snapshots, snapshot_root
 
 
 def _rollback_target_paths(
@@ -263,71 +261,16 @@ def _rollback_target_paths(
 ) -> tuple[Path, ...]:
     return (
         *tuple(
-            _required_path(operation.target)
-            for operation in _operations_of_kind(plan, OperationKind.COPY_SKILL)
+            required_path(operation.target)
+            for operation in operations_of_kind(plan, OperationKind.COPY_SKILL)
         ),
         *tuple(
-            _required_path(operation.target)
-            for operation in _operations_of_kind(plan, OperationKind.WRITE_MANIFEST)
+            required_path(operation.target)
+            for operation in operations_of_kind(plan, OperationKind.WRITE_MANIFEST)
         ),
-        _required_path(_single_operation(plan, OperationKind.WRITE_REGISTRY).target),
+        required_path(single_operation(plan, OperationKind.WRITE_REGISTRY).target),
         *tuple(pointer_target.parent for pointer_target in validated.pointer_targets),
     )
-
-
-def _snapshot_path(path: Path, snapshot_root: Path, index: int) -> _PathSnapshot:
-    backup_path = snapshot_root / str(index)
-    if path.is_dir():
-        shutil.copytree(path, backup_path)
-        return _PathSnapshot(path=path, kind="dir", backup_path=backup_path)
-    if path.exists():
-        backup_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, backup_path)
-        return _PathSnapshot(path=path, kind="file", backup_path=backup_path)
-    return _PathSnapshot(path=path, kind="missing")
-
-
-def _restore_snapshots(snapshots: tuple[_PathSnapshot, ...]) -> None:
-    for snapshot in reversed(snapshots):
-        _restore_snapshot(snapshot)
-
-
-def _restore_snapshot(snapshot: _PathSnapshot) -> None:
-    if snapshot.kind == "missing":
-        _remove_path(snapshot.path)
-        return
-    if snapshot.backup_path is None:
-        raise ValueError(f"snapshot backup path missing for {snapshot.path}")
-
-    _remove_path(snapshot.path)
-    snapshot.path.parent.mkdir(parents=True, exist_ok=True)
-    if snapshot.kind == "dir":
-        shutil.copytree(snapshot.backup_path, snapshot.path)
-        return
-    if snapshot.kind == "file":
-        shutil.copy2(snapshot.backup_path, snapshot.path)
-        return
-    raise ValueError(f"unknown snapshot kind: {snapshot.kind}")
-
-
-def _remove_path(path: Path) -> None:
-    if path.is_dir():
-        shutil.rmtree(path)
-        return
-    if path.exists():
-        path.unlink()
-
-
-def _unique_paths(paths: tuple[Path, ...]) -> tuple[Path, ...]:
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for path in paths:
-        key = str(path.resolve(strict=False))
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(path)
-    return tuple(unique)
 
 
 def _validate_plan(
@@ -335,36 +278,24 @@ def _validate_plan(
     runtime_paths: RuntimePaths,
     config_path: Path,
     active_root: Path,
-    host: str,
+    adapter: HostAdapter,
 ) -> _ValidatedPlan:
     _validate_operation_kinds_and_order(plan.operations)
-    _validate_host_operation_set(plan.operations, host)
-    if host == "codex":
-        _validate_backup_operations(plan, runtime_paths, config_path)
-    else:  # host == "claude"
-        _validate_backup_vault_only(plan, runtime_paths)
+    _validate_host_operation_set(plan.operations, adapter.host)
+    host_validation = adapter.validate_host_plan(
+        plan, runtime_paths, config_path, active_root, _validated_manifests(plan, runtime_paths, active_root)
+    )
     manifests = _validated_manifests(plan, runtime_paths, active_root)
     _validate_copy_operations(plan, manifests, active_root, runtime_paths)
     _validate_registry_operation(plan, runtime_paths, manifests)
     pointer_targets = _validate_pointer_operations(plan, active_root, manifests)
-    if host == "codex":
-        disabled_skill_md_paths = _validate_disable_operations(
-            plan,
-            active_root,
-            config_path,
-            manifests,
-        )
-        archive_operations: tuple[WriteOperation, ...] = ()
-    else:
-        disabled_skill_md_paths = ()
-        archive_operations = _validate_archive_operations(plan, active_root, manifests)
-    delete_source_candidates = _validate_delete_candidates(plan, active_root, manifests, host)
+    delete_source_candidates = _validate_delete_candidates(plan, active_root, manifests, adapter)
     return _ValidatedPlan(
         manifests=manifests,
         pointer_targets=pointer_targets,
-        disabled_skill_md_paths=disabled_skill_md_paths,
+        disabled_skill_md_paths=host_validation.disabled_skill_md_paths,
         delete_source_candidates=delete_source_candidates,
-        archive_operations=archive_operations,
+        archive_operations=host_validation.archive_operations,
     )
 
 
@@ -391,44 +322,6 @@ def _validate_host_operation_set(
         raise ValueError(f"codex-only operations in claude plan: {sorted(k.value for k in kinds & codex_only)}")
 
 
-def _validate_backup_vault_only(
-    plan: WritePlan,
-    runtime_paths: RuntimePaths,
-) -> None:
-    backup_vault = _single_operation(plan, OperationKind.BACKUP_VAULT)
-    if _required_path(backup_vault.source) != runtime_paths.vault:
-        raise ValueError("backup vault source does not match runtime vault")
-    _ensure_under(
-        _required_path(backup_vault.target),
-        runtime_paths.backups,
-        "vault backup target path",
-    )
-
-
-def _validate_backup_operations(
-    plan: WritePlan,
-    runtime_paths: RuntimePaths,
-    config_path: Path,
-) -> None:
-    backup_config = _single_operation(plan, OperationKind.BACKUP_CODEX_CONFIG)
-    backup_vault = _single_operation(plan, OperationKind.BACKUP_VAULT)
-
-    if _required_path(backup_config.source) != config_path:
-        raise ValueError("backup config source does not match codex_config_path")
-    _ensure_under(
-        _required_path(backup_config.target),
-        runtime_paths.backups,
-        "config backup target path",
-    )
-    if _required_path(backup_vault.source) != runtime_paths.vault:
-        raise ValueError("backup vault source does not match runtime vault")
-    _ensure_under(
-        _required_path(backup_vault.target),
-        runtime_paths.backups,
-        "vault backup target path",
-    )
-
-
 def _validated_manifests(
     plan: WritePlan,
     runtime_paths: RuntimePaths,
@@ -436,27 +329,27 @@ def _validated_manifests(
 ) -> tuple[PackManifest, ...]:
     manifests = tuple(
         _pack_manifest_from_metadata(_required_mapping(operation.metadata.get("manifest")))
-        for operation in _operations_of_kind(plan, OperationKind.WRITE_MANIFEST)
+        for operation in operations_of_kind(plan, OperationKind.WRITE_MANIFEST)
     )
     if tuple(manifest.id for manifest in manifests) != plan.pack_ids:
         raise ValueError("manifest pack ids do not match plan pack ids")
 
     for operation, manifest in zip(
-        _operations_of_kind(plan, OperationKind.WRITE_MANIFEST),
+        operations_of_kind(plan, OperationKind.WRITE_MANIFEST),
         manifests,
         strict=True,
     ):
-        _safe_component(manifest.id, "pack_id")
-        _safe_pointer_skill(manifest.pointer_skill)
+        safe_component(manifest.id, "pack_id")
+        safe_pointer_skill(manifest.pointer_skill)
         expected_target = runtime_paths.packs / f"{manifest.id}.toml"
-        if _required_path(operation.target) != expected_target:
+        if required_path(operation.target) != expected_target:
             raise ValueError(f"manifest target does not match pack id: {manifest.id}")
-        _ensure_under(expected_target, runtime_paths.packs, "manifest target path")
+        ensure_under(expected_target, runtime_paths.packs, "manifest target path")
         if manifest.vault_root is not None:
-            _ensure_under(manifest.vault_root, runtime_paths.vault, "manifest vault root")
+            ensure_under(manifest.vault_root, runtime_paths.vault, "manifest vault root")
         for skill in manifest.skills:
-            _safe_component(skill.name, "skill_name")
-            _ensure_under(skill.source_path, active_root, "manifest source path")
+            safe_component(skill.name, "skill_name")
+            ensure_under(skill.source_path, active_root, "manifest source path")
             expected_source_path = active_root / skill.name
             if skill.source_path.resolve(strict=False) != expected_source_path.resolve(
                 strict=False
@@ -465,7 +358,7 @@ def _validated_manifests(
                     "manifest source path does not match skill name: "
                     f"{skill.source_path} != {expected_source_path}"
                 )
-            _ensure_under(skill.vault_path, runtime_paths.vault, "manifest vault path")
+            ensure_under(skill.vault_path, runtime_paths.vault, "manifest vault path")
             validate_skill_folder(skill.source_path)
 
     pack_ids = tuple(manifest.id for manifest in manifests)
@@ -514,12 +407,12 @@ def _validate_copy_operations(
         for skill in manifest.skills
     )
     actual = tuple(
-        (_required_path(operation.source), _required_path(operation.target))
-        for operation in _operations_of_kind(plan, OperationKind.COPY_SKILL)
+        (required_path(operation.source), required_path(operation.target))
+        for operation in operations_of_kind(plan, OperationKind.COPY_SKILL)
     )
     for source, target in actual:
-        _ensure_under(source, active_root, "copy source path")
-        _ensure_under(target, runtime_paths.vault, "copy target path")
+        ensure_under(source, active_root, "copy source path")
+        ensure_under(target, runtime_paths.vault, "copy target path")
         validate_skill_folder(source)
     if actual != expected:
         raise ValueError("copy operations do not match manifest skills")
@@ -530,11 +423,11 @@ def _validate_registry_operation(
     runtime_paths: RuntimePaths,
     manifests: tuple[PackManifest, ...],
 ) -> None:
-    operation = _single_operation(plan, OperationKind.WRITE_REGISTRY)
-    target = _required_path(operation.target)
+    operation = single_operation(plan, OperationKind.WRITE_REGISTRY)
+    target = required_path(operation.target)
     if target != runtime_paths.state / "registry.toml":
         raise ValueError("registry target does not match runtime state path")
-    _ensure_under(target, runtime_paths.state, "registry target path")
+    ensure_under(target, runtime_paths.state, "registry target path")
 
     registry_data = _required_mapping(operation.metadata.get("registry"))
     registry_pack_ids = tuple(
@@ -555,44 +448,18 @@ def _validate_pointer_operations(
         *tuple(active_root / manifest.pointer_skill / "SKILL.md" for manifest in manifests),
     )
     actual_targets = tuple(
-        _required_path(operation.target)
-        for operation in _operations_of_kind(plan, OperationKind.WRITE_POINTER)
+        required_path(operation.target)
+        for operation in operations_of_kind(plan, OperationKind.WRITE_POINTER)
     )
     if actual_targets != expected_targets:
         raise ValueError("pointer operations do not match expected active skills")
 
     for target in actual_targets:
-        _ensure_under(target, active_root, "pointer target path")
+        ensure_under(target, active_root, "pointer target path")
         if target.name != "SKILL.md":
             raise ValueError(f"pointer target must be SKILL.md: {target}")
-        _safe_pointer_skill(target.parent.name)
+        safe_pointer_skill(target.parent.name)
     return actual_targets
-
-
-def _validate_disable_operations(
-    plan: WritePlan,
-    active_root: Path,
-    config_path: Path,
-    manifests: tuple[PackManifest, ...],
-) -> tuple[Path, ...]:
-    expected_paths = tuple(
-        skill.source_path / "SKILL.md"
-        for manifest in manifests
-        for skill in manifest.skills
-    )
-    operations = _operations_of_kind(plan, OperationKind.DISABLE_CODEX_SKILL)
-    actual_paths = tuple(_required_path(operation.source) for operation in operations)
-    if actual_paths != expected_paths:
-        raise ValueError("config disable operations do not match manifest skills")
-
-    for operation, skill_md_path in zip(operations, actual_paths, strict=True):
-        _ensure_under(skill_md_path, active_root, "config disable source path")
-        if _required_path(operation.target) != config_path:
-            raise ValueError("config disable target does not match codex_config_path")
-        metadata_path = operation.metadata.get("skill_md_path")
-        if metadata_path is not None and Path(str(metadata_path)) != skill_md_path:
-            raise ValueError("config disable metadata path does not match source")
-    return actual_paths
 
 
 def _validate_archive_operations(
@@ -605,9 +472,9 @@ def _validate_archive_operations(
         for manifest in manifests
         for skill in manifest.skills
     )
-    operations = _operations_of_kind(plan, OperationKind.MOVE_TO_ARCHIVE)
+    operations = operations_of_kind(plan, OperationKind.MOVE_TO_ARCHIVE)
     actual = tuple(
-        (_required_path(operation.source), _required_path(operation.target))
+        (required_path(operation.source), required_path(operation.target))
         for operation in operations
     )
 
@@ -616,8 +483,8 @@ def _validate_archive_operations(
 
     archive_root = active_root / ARCHIVE_DIR_NAME
     for operation, (source, target) in zip(operations, actual, strict=True):
-        _ensure_under(source, active_root, "archive source path")
-        _ensure_under(target, archive_root, "archive target path")
+        ensure_under(source, active_root, "archive source path")
+        ensure_under(target, archive_root, "archive target path")
         if _is_plugin_cache_path(source):
             raise ValueError(f"refusing to archive source path inside plugin cache: {source}")
         if operation.metadata.get("host") != "claude":
@@ -629,27 +496,16 @@ def _validate_delete_candidates(
     plan: WritePlan,
     active_root: Path,
     manifests: tuple[PackManifest, ...],
-    host: str,
+    adapter: HostAdapter,
 ) -> tuple[_DeleteSourceCandidate, ...]:
-    if host == "codex":
-        expected = tuple(
-            (skill.source_path, manifest.id, skill.name)
-            for manifest in manifests
-            for skill in manifest.skills
-        )
-    else:  # claude
-        expected = tuple(
-            (active_root / ARCHIVE_DIR_NAME / manifest.id / skill.name, manifest.id, skill.name)
-            for manifest in manifests
-            for skill in manifest.skills
-        )
+    expected = adapter.expected_delete_targets(active_root, manifests)
     actual: list[tuple[Path, str, str]] = []
     candidates: list[_DeleteSourceCandidate] = []
-    for operation in _operations_of_kind(plan, OperationKind.DELETE_SOURCE):
-        target = _required_path(operation.target)
+    for operation in operations_of_kind(plan, OperationKind.DELETE_SOURCE):
+        target = required_path(operation.target)
         pack_id = str(operation.metadata.get("pack_id", ""))
         skill_name = str(operation.metadata.get("skill_name", ""))
-        _ensure_under(target, active_root, "delete source target path")
+        ensure_under(target, active_root, "delete source target path")
         if (
             operation.metadata.get("candidate") is not True
             or operation.metadata.get("active") is True
@@ -729,7 +585,7 @@ def _validated_source_deletion_paths(
                 "Claude-specific source paths require exact deletion path selection"
             )
         deletion_paths.append(candidate.path)
-    return _unique_paths(tuple(deletion_paths))
+    return unique_paths(tuple(deletion_paths))
 
 
 def _path_key(path: Path) -> str:
@@ -752,20 +608,6 @@ def _is_claude_specific_path(path: Path) -> bool:
 def _is_archive_path(path: Path) -> bool:
     from sos._archive import ARCHIVE_DIR_NAME
     return ARCHIVE_DIR_NAME in path.resolve(strict=False).parts
-
-
-def _operations_of_kind(
-    plan: WritePlan,
-    kind: OperationKind,
-) -> tuple[WriteOperation, ...]:
-    return tuple(operation for operation in plan.operations if operation.kind == kind)
-
-
-def _single_operation(plan: WritePlan, kind: OperationKind) -> WriteOperation:
-    operations = _operations_of_kind(plan, kind)
-    if len(operations) != 1:
-        raise ValueError(f"expected exactly one {kind.value} operation")
-    return operations[0]
 
 
 def _pack_manifest_from_metadata(data: Mapping[str, Any]) -> PackManifest:
@@ -815,28 +657,3 @@ def _optional_mapping(value: Any) -> Mapping[str, Any] | None:
     if value is None:
         return None
     return _required_mapping(value)
-
-
-def _required_path(path: Path | None) -> Path:
-    if path is None:
-        raise ValueError("operation path is required")
-    return path
-
-
-def _safe_component(value: str, label: str) -> str:
-    return safe_component(value, label)
-
-
-def _safe_pointer_skill(value: str) -> str:
-    _safe_component(value, "pointer_skill")
-    if not value.startswith("sos-"):
-        raise ValueError(f"unsafe pointer_skill: {value}")
-    return value
-
-
-def _ensure_under(path: Path, root: Path, label: str) -> None:
-    resolved_path = path.resolve(strict=False)
-    resolved_root = root.resolve(strict=False)
-    if resolved_path == resolved_root or resolved_path.is_relative_to(resolved_root):
-        return
-    raise ValueError(f"{label} escapes expected root: {path}")

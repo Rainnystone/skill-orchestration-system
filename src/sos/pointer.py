@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterable
 
 from sos.models import PackManifest, Registry
+from sos.path_safety import safe_pointer_skill
 from sos.toml_io import atomic_write_text
 
 _TEMPLATE_ROOT: Path | None = None
@@ -14,7 +15,7 @@ _PLACEHOLDER_RE = re.compile(r"{{\s*([^{}]+?)\s*}}")
 
 
 def render_pack_pointer(target: str | Path, manifest: PackManifest) -> None:
-    pointer_skill = _safe_pointer_skill_name(manifest.pointer_skill)
+    pointer_skill = safe_pointer_skill(manifest.pointer_skill)
     manifest_path = _manifest_path(manifest)
     vault_root = manifest.vault_root or _DEFAULT_RUNTIME_ROOT / "vault" / manifest.id
     runtime_root = _runtime_root_from_manifest(manifest)
@@ -105,7 +106,7 @@ def render_workspace_asahina_skill(target: str | Path, *, runtime_root: str | Pa
 
 
 def render_workspace_pack_pointer(target: str | Path, manifest: PackManifest) -> None:
-    pointer_skill = _safe_pointer_skill_name(manifest.pointer_skill)
+    pointer_skill = safe_pointer_skill(manifest.pointer_skill)
     description = _compact_description(manifest)
     text = _render_template(
         "workspace-pointer-skill.md.tmpl",
@@ -134,7 +135,7 @@ def render_v1_active_skills(
     root = Path(active_root)
     ordered_manifests = _ordered_manifests(registry, tuple(manifests))
     for manifest in ordered_manifests:
-        _safe_pointer_skill_name(manifest.pointer_skill)
+        safe_pointer_skill(manifest.pointer_skill)
     registry_path = _registry_path(ordered_manifests)
     written: list[Path] = []
 
@@ -171,26 +172,13 @@ def _read_template(template_name: str) -> str:
 
 
 def _skill_file_path(target: str | Path, skill_name: str) -> Path:
-    safe_skill_name = _safe_pointer_skill_name(skill_name)
+    safe_skill_name = safe_pointer_skill(skill_name)
     path = Path(target)
     if path.name == "SKILL.md":
         return path
     if path.name == safe_skill_name:
         return path / "SKILL.md"
     return path / safe_skill_name / "SKILL.md"
-
-
-def _safe_pointer_skill_name(name: str) -> str:
-    if (
-        not name.startswith("sos-")
-        or name in {".", ".."}
-        or "/" in name
-        or "\\" in name
-        or Path(name).is_absolute()
-        or Path(name).name != name
-    ):
-        raise ValueError(f"unsafe pointer skill name: {name}")
-    return name
 
 
 def _compact_description(manifest: PackManifest) -> str:

@@ -7,6 +7,7 @@ from typing import Any, Iterable, Mapping
 
 from sos._archive import ARCHIVE_DIR_NAME
 from sos.active_namespace import validate_active_skill_namespace
+from sos.host_adapter import host_adapter_for
 from sos.manifest import load_registry
 from sos.models import (
     OperationKind,
@@ -17,7 +18,8 @@ from sos.models import (
     WritePlan,
 )
 from sos.paths import RuntimePaths
-from sos.path_safety import reject_component_collisions, safe_component
+from sos.path_safety import ensure_under, reject_component_collisions, required_path, safe_component
+from sos.plan_ops import operations_of_kind, single_operation
 from sos.propose import PackProposal
 from sos.scanner import read_skill_frontmatter
 from sos.skill_fs import validate_skill_folder
@@ -42,28 +44,18 @@ def build_pack_apply_plan(
     plan_id = _plan_id(runtime_paths, active_root, config_path, proposal_tuple, host)
     manifests = _pack_manifests(runtime_paths, active_root, proposal_tuple, host)
     registry = _registry(manifests)
+    adapter = host_adapter_for(host)
 
-    if host == "codex":
-        operations = (
-            _backup_config_operation(runtime_paths, plan_id, config_path),
-            _backup_vault_operation(runtime_paths, plan_id),
-            *_copy_operations(manifests),
-            *_manifest_operations(runtime_paths, manifests),
-            _registry_operation(runtime_paths, registry),
-            *_pointer_operations(active_root, manifests),
-            *_disable_config_operations(config_path, manifests),
-            *_delete_source_candidate_operations(active_root, manifests),
-        )
-    else:  # host == "claude"
-        operations = (
-            _backup_vault_operation(runtime_paths, plan_id),
-            *_copy_operations(manifests),
-            *_manifest_operations(runtime_paths, manifests),
-            _registry_operation(runtime_paths, registry),
-            *_pointer_operations(active_root, manifests),
-            *_move_to_archive_operations(active_root, manifests, host),
-            *_delete_source_candidate_operations(active_root, manifests),
-        )
+    operations = (
+        *adapter.plan_backup_operations(runtime_paths, plan_id, config_path),
+        _backup_vault_operation(runtime_paths, plan_id),
+        *_copy_operations(manifests),
+        *_manifest_operations(runtime_paths, manifests),
+        _registry_operation(runtime_paths, registry),
+        *_pointer_operations(active_root, manifests),
+        *adapter.plan_disable_operations(config_path, active_root, manifests),
+        *_delete_source_candidate_operations(active_root, manifests, adapter),
+    )
     return WritePlan(
         plan_id=plan_id,
         pack_ids=tuple(manifest.id for manifest in manifests),
@@ -215,11 +207,11 @@ def _skill_entry(
     skill_name: str,
 ) -> SkillEntry:
     source_path = active_root / skill_name
-    _ensure_under(source_path, active_root, "source skill path")
+    ensure_under(source_path, active_root, "source skill path")
     validate_skill_folder(source_path)
     frontmatter = read_skill_frontmatter(source_path / "SKILL.md")
     vault_path = runtime_paths.vault / pack_id / skill_name
-    _ensure_under(vault_path, runtime_paths.vault, "vault target path")
+    ensure_under(vault_path, runtime_paths.vault, "vault target path")
     return SkillEntry(
         name=skill_name,
         source_path=source_path,
@@ -239,28 +231,9 @@ def _registry(manifests: tuple[PackManifest, ...]) -> Registry:
     )
 
 
-def _backup_config_operation(
-    runtime_paths: RuntimePaths,
-    plan_id: str,
-    config_path: Path,
-) -> WriteOperation:
-    backup_target = runtime_paths.backups / plan_id / "config.toml"
-    _ensure_under(backup_target, runtime_paths.backups, "config backup target path")
-    return WriteOperation(
-        OperationKind.BACKUP_CODEX_CONFIG,
-        source=config_path,
-        target=backup_target,
-        metadata={
-            "backup_id": plan_id,
-            "codex_config_path": str(config_path),
-            "reason": "pack apply",
-        },
-    )
-
-
 def _backup_vault_operation(runtime_paths: RuntimePaths, plan_id: str) -> WriteOperation:
     backup_target = runtime_paths.backups / plan_id / "vault"
-    _ensure_under(backup_target, runtime_paths.backups, "vault backup target path")
+    ensure_under(backup_target, runtime_paths.backups, "vault backup target path")
     return WriteOperation(
         OperationKind.BACKUP_VAULT,
         source=runtime_paths.vault,
@@ -301,7 +274,7 @@ def _manifest_operation(
     manifest: PackManifest,
 ) -> WriteOperation:
     target = runtime_paths.packs / f"{manifest.id}.toml"
-    _ensure_under(target, runtime_paths.packs, "manifest target path")
+    ensure_under(target, runtime_paths.packs, "manifest target path")
     return WriteOperation(
         OperationKind.WRITE_MANIFEST,
         target=target,
@@ -314,7 +287,7 @@ def _manifest_operation(
 
 def _registry_operation(runtime_paths: RuntimePaths, registry: Registry) -> WriteOperation:
     target = runtime_paths.state / "registry.toml"
-    _ensure_under(target, runtime_paths.state, "registry target path")
+    ensure_under(target, runtime_paths.state, "registry target path")
     return WriteOperation(
         OperationKind.WRITE_REGISTRY,
         target=target,
@@ -327,7 +300,7 @@ def _pointer_operations(
     manifests: tuple[PackManifest, ...],
 ) -> tuple[WriteOperation, ...]:
     companion_target = active_root / "sos-haruhi" / "SKILL.md"
-    _ensure_under(companion_target, active_root, "companion pointer target path")
+    ensure_under(companion_target, active_root, "companion pointer target path")
     companion = WriteOperation(
         OperationKind.WRITE_POINTER,
         target=companion_target,
@@ -342,7 +315,7 @@ def _pointer_operations(
 
 def _pack_pointer_operation(active_root: Path, manifest: PackManifest) -> WriteOperation:
     target = active_root / manifest.pointer_skill / "SKILL.md"
-    _ensure_under(target, active_root, "pack pointer target path")
+    ensure_under(target, active_root, "pack pointer target path")
     return WriteOperation(
         OperationKind.WRITE_POINTER,
         target=target,
@@ -354,32 +327,13 @@ def _pack_pointer_operation(active_root: Path, manifest: PackManifest) -> WriteO
     )
 
 
-def _disable_config_operations(
-    config_path: Path,
-    manifests: tuple[PackManifest, ...],
-) -> tuple[WriteOperation, ...]:
-    return tuple(
-        WriteOperation(
-            OperationKind.DISABLE_CODEX_SKILL,
-            source=skill.source_path / "SKILL.md",
-            target=config_path,
-            metadata={
-                "pack_id": manifest.id,
-                "skill_name": skill.name,
-                "skill_md_path": str(skill.source_path / "SKILL.md"),
-            },
-        )
-        for manifest in manifests
-        for skill in manifest.skills
-    )
-
-
 def _delete_source_candidate_operations(
     active_root: Path,
     manifests: tuple[PackManifest, ...],
+    adapter: Any,
 ) -> tuple[WriteOperation, ...]:
     return tuple(
-        _delete_source_candidate_operation(active_root, manifest, skill)
+        _delete_source_candidate_operation(active_root, manifest, skill, adapter)
         for manifest in manifests
         for skill in manifest.skills
     )
@@ -389,12 +343,10 @@ def _delete_source_candidate_operation(
     active_root: Path,
     manifest: PackManifest,
     skill: SkillEntry,
+    adapter: Any,
 ) -> WriteOperation:
-    if manifest.host == "claude":
-        target = active_root / ARCHIVE_DIR_NAME / manifest.id / skill.name
-    else:
-        target = skill.source_path
-    _ensure_under(target, active_root, "delete source target path")
+    target = adapter.delete_source_target(active_root, manifest, skill)
+    ensure_under(target, active_root, "delete source target path")
     return WriteOperation(
         OperationKind.DELETE_SOURCE,
         target=target,
@@ -403,39 +355,6 @@ def _delete_source_candidate_operation(
             "skill_name": skill.name,
             "candidate": True,
             "active": False,
-        },
-    )
-
-
-def _move_to_archive_operations(
-    active_root: Path,
-    manifests: tuple[PackManifest, ...],
-    host: str,
-) -> tuple[WriteOperation, ...]:
-    return tuple(
-        _move_to_archive_operation(active_root, manifest, skill, host)
-        for manifest in manifests
-        for skill in manifest.skills
-    )
-
-
-def _move_to_archive_operation(
-    active_root: Path,
-    manifest: PackManifest,
-    skill: SkillEntry,
-    host: str,
-) -> WriteOperation:
-    archive_target = active_root / ARCHIVE_DIR_NAME / manifest.id / skill.name
-    _ensure_under(skill.source_path, active_root, "archive source path")
-    _ensure_under(archive_target, active_root, "archive target path")
-    return WriteOperation(
-        OperationKind.MOVE_TO_ARCHIVE,
-        source=skill.source_path,
-        target=archive_target,
-        metadata={
-            "pack_id": manifest.id,
-            "skill_name": skill.name,
-            "host": host,
         },
     )
 
@@ -541,7 +460,7 @@ def _pack_head_description(proposal: PackProposal) -> str:
 
 def _pointer_skill(pack_id: str) -> str:
     pointer_skill = f"sos-{pack_id}"
-    _safe_component(pointer_skill, "pointer_skill")
+    safe_component(pointer_skill, "pointer_skill")
     if not pointer_skill.startswith("sos-"):
         raise ValueError(f"unsafe pointer_skill: {pointer_skill}")
     return pointer_skill
@@ -560,10 +479,10 @@ def _validate_proposals(
 ) -> None:
     all_skill_names: list[str] = []
     for proposal in proposals:
-        _safe_component(proposal.pack_id, "pack_id")
+        safe_component(proposal.pack_id, "pack_id")
         _pointer_skill(proposal.pack_id)
         for skill_name in proposal.skill_names:
-            _safe_component(skill_name, "skill_name")
+            safe_component(skill_name, "skill_name")
             all_skill_names.append(skill_name)
     pack_ids = tuple(proposal.pack_id for proposal in proposals)
     reject_component_collisions(pack_ids, "pack_id")
@@ -585,13 +504,30 @@ def _previous_active_pointers(runtime_paths: RuntimePaths) -> tuple[str, ...]:
     return load_registry(registry_path).active_pointers
 
 
-def _safe_component(value: str, label: str) -> str:
-    return safe_component(value, label)
+def active_root_from_plan(plan: WritePlan) -> Path:
+    """Infer the active skill root from a write plan's copy or pointer operations."""
+    copy_operations = operations_of_kind(plan, OperationKind.COPY_SKILL)
+    if copy_operations:
+        return required_path(copy_operations[0].source).parent
+    pointer_operations = operations_of_kind(plan, OperationKind.WRITE_POINTER)
+    if pointer_operations:
+        return required_path(pointer_operations[0].target).parent.parent
+    raise ValueError("unable to infer active skill root from plan")
 
 
-def _ensure_under(path: Path, root: Path, label: str) -> None:
-    resolved_path = path.resolve(strict=False)
-    resolved_root = root.resolve(strict=False)
-    if resolved_path == resolved_root or resolved_path.is_relative_to(resolved_root):
-        return
-    raise ValueError(f"{label} escapes expected root: {path}")
+def context_from_plan(plan: WritePlan, host: str) -> dict[str, Any]:
+    """Extract runtime paths, codex config path, and active skill root from a plan."""
+    backup_vault = single_operation(plan, OperationKind.BACKUP_VAULT)
+    runtime_vault = required_path(backup_vault.source)
+    active_root = active_root_from_plan(plan)
+    if host == "codex":
+        backup_config = single_operation(plan, OperationKind.BACKUP_CODEX_CONFIG)
+        config_path = required_path(backup_config.source)
+    else:
+        # For Claude, codex_config_path is unused by apply but still must be a path-like.
+        config_path = active_root / ".sos-no-codex-config"
+    return {
+        "runtime_paths": RuntimePaths.from_root(runtime_vault.parent),
+        "codex_config_path": config_path,
+        "active_skill_root": active_root,
+    }

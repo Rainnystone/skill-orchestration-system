@@ -61,3 +61,27 @@ def reject_path_collisions(paths: tuple[Path, ...], label: str) -> None:
         if existing is not None:
             raise ValueError(f"{label} collision: {existing!r} and {path!r}")
         seen[key] = path
+
+
+def safe_pointer_skill(value: str) -> str:
+    """Validate a pointer skill name (must start with 'sos-' and be a safe component)."""
+    safe_component(value, "pointer_skill")
+    if not value.startswith("sos-"):
+        raise ValueError(f"unsafe pointer_skill: {value}")
+    return value
+
+
+def ensure_under(path: Path, root: Path, label: str) -> None:
+    """Raise ValueError if *path* does not live under *root*."""
+    resolved_path = path.resolve(strict=False)
+    resolved_root = root.resolve(strict=False)
+    if resolved_path == resolved_root or resolved_path.is_relative_to(resolved_root):
+        return
+    raise ValueError(f"{label} escapes expected root: {path}")
+
+
+def required_path(path: Path | None) -> Path:
+    """Return *path* or raise ValueError if it is None."""
+    if path is None:
+        raise ValueError("operation path is required")
+    return path

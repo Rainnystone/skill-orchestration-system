@@ -590,15 +590,15 @@ def test_write_config_produces_valid_toml_on_all_platforms(tmp_path: Path):
 
 
 def test_safe_component_rejects_backslash_traversal():
-    from sos.apply import _safe_component
+    from sos.path_safety import safe_component
     with pytest.raises(ValueError, match="unsafe"):
-        _safe_component("..\\outside", "pack_id")
+        safe_component("..\\outside", "pack_id")
 
 
 def test_safe_component_rejects_backslash_in_component():
-    from sos.apply import _safe_component
+    from sos.path_safety import safe_component
     with pytest.raises(ValueError, match="unsafe"):
-        _safe_component("foo\\bar", "pack_id")
+        safe_component("foo\\bar", "pack_id")
 
 
 def test_apply_rejects_plan_when_host_mismatches_argument(tmp_path):

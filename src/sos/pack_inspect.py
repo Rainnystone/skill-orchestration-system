@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from sos.manifest import load_pack_manifest, load_registry
 from sos.models import PackManifest
 from sos.paths import RuntimePaths
+from sos.path_safety import safe_component
 
 
 def list_pack_manifests(runtime_paths: RuntimePaths) -> tuple[PackManifest, ...]:
@@ -14,8 +16,21 @@ def list_pack_manifests(runtime_paths: RuntimePaths) -> tuple[PackManifest, ...]
     return load_registry(registry_path).packs
 
 
+def runtime_manifest_fingerprint(runtime_paths: RuntimePaths) -> str:
+    """Return a stable SHA-256 fingerprint of the current runtime pack manifests."""
+    digest = hashlib.sha256()
+    for manifest in sorted(list_pack_manifests(runtime_paths), key=lambda item: item.id):
+        manifest_path = runtime_paths.packs / f"{manifest.id}.toml"
+        digest.update(manifest.id.encode("utf-8"))
+        digest.update(b"\0")
+        if manifest_path.is_file():
+            digest.update(manifest_path.read_bytes())
+        digest.update(b"\0")
+    return f"sha256:{digest.hexdigest()}"
+
+
 def load_runtime_pack(runtime_paths: RuntimePaths, pack_id: str) -> PackManifest:
-    safe_pack_id = _safe_component(pack_id, "pack")
+    safe_pack_id = safe_component(pack_id, "pack")
     manifest_path = runtime_paths.packs / f"{safe_pack_id}.toml"
     if not manifest_path.is_file():
         raise ValueError(f"unknown pack: {pack_id}")
@@ -37,16 +52,3 @@ def filter_pack_skill(manifest: PackManifest, skill_name: str) -> PackManifest:
         sync_policy=manifest.sync_policy,
         vault_root=manifest.vault_root,
     )
-
-
-def _safe_component(value: str, label: str) -> str:
-    if (
-        not value
-        or value in {".", ".."}
-        or Path(value).is_absolute()
-        or "/" in value
-        or "\\" in value
-        or Path(value).name != value
-    ):
-        raise ValueError(f"unsafe {label}: {value}")
-    return value

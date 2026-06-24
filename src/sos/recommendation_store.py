@@ -3,10 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
+from sos.models import PackManifest
+from sos.pack_inspect import list_pack_manifests, runtime_manifest_fingerprint
 from sos.paths import RuntimePaths
 from sos.toml_io import atomic_write_text
 
@@ -313,3 +316,86 @@ def _looks_like_path(value: str) -> bool:
     if "/" in value or "\\" in value:
         return True
     return len(value) >= 3 and value[1] == ":" and value[0].isalpha() and value[2] in {"\\", "/"}
+
+
+def validate_scenario_label_argument(
+    scenario_label: str,
+    scenario_tags: tuple[str, ...],
+) -> None:
+    """Validate that a CLI-provided scenario label is consistent with its tags."""
+    accepted_labels = {
+        " ".join(dict.fromkeys(scenario_tags)),
+        scenario_label_from_tags(canonicalize_scenario_tags(scenario_tags)),
+    }
+    if scenario_label.strip() not in accepted_labels:
+        raise ValueError(f"unsafe scenario_label: {scenario_label}")
+
+
+def validate_recommendation_selection(
+    runtime_paths: RuntimePaths,
+    selected_pack_ids: tuple[str, ...],
+    selected_skill_names: tuple[str, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Canonicalize and validate a user's pack/skill selection against runtime manifests."""
+    runtime_manifests = list_pack_manifests(runtime_paths)
+    manifests_by_id = {manifest.id: manifest for manifest in runtime_manifests}
+    selected_pack_set = set(selected_pack_ids)
+    for pack_id in selected_pack_ids:
+        if pack_id not in manifests_by_id:
+            raise ValueError(f"unknown selected pack: {pack_id}")
+    canonical_pack_ids = tuple(
+        manifest.id for manifest in runtime_manifests if manifest.id in selected_pack_set
+    )
+
+    selected_manifests = tuple(manifests_by_id[pack_id] for pack_id in canonical_pack_ids)
+    skill_names = {
+        skill.name
+        for manifest in selected_manifests
+        for skill in manifest.skills
+    }
+    for skill_name in selected_skill_names:
+        if skill_name not in skill_names:
+            raise ValueError(f"selected skill not in selected packs: {skill_name}")
+    selected_skill_set = set(selected_skill_names)
+    canonical_skill_names: list[str] = []
+    for manifest in selected_manifests:
+        if not any(skill.name in selected_skill_set for skill in manifest.skills):
+            raise ValueError(f"selected pack has no selected skills: {manifest.id}")
+        for skill in manifest.skills:
+            if skill.name in selected_skill_set and skill.name not in canonical_skill_names:
+                canonical_skill_names.append(skill.name)
+    return canonical_pack_ids, tuple(canonical_skill_names)
+
+
+def manifest_valid_selection_events(
+    events: Iterable[SelectionEvent],
+    runtime_paths: RuntimePaths,
+) -> tuple[SelectionEvent, ...]:
+    """Filter selection events that are still valid against the current runtime manifests."""
+    manifests_by_id = {
+        manifest.id: manifest for manifest in list_pack_manifests(runtime_paths)
+    }
+    current_manifest_fingerprint = runtime_manifest_fingerprint(runtime_paths)
+    valid_events: list[SelectionEvent] = []
+    for event in events:
+        if event.manifest_fingerprint != current_manifest_fingerprint:
+            continue
+        selected_pack_ids = set(event.selected_pack_ids)
+        selected_skill_names = set(event.selected_skill_names)
+        if not selected_pack_ids.issubset(manifests_by_id):
+            continue
+        skill_names_by_pack = {
+            pack_id: {skill.name for skill in manifests_by_id[pack_id].skills}
+            for pack_id in selected_pack_ids
+        }
+        if not selected_skill_names.issubset(
+            set().union(*skill_names_by_pack.values())
+        ):
+            continue
+        if any(
+            not selected_skill_names.intersection(skill_names)
+            for skill_names in skill_names_by_pack.values()
+        ):
+            continue
+        valid_events.append(event)
+    return tuple(valid_events)

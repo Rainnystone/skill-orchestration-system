@@ -169,7 +169,7 @@ def test_render_v1_active_skills_rejects_unsafe_pointer_skill_path(tmp_path: Pat
     unsafe = _manifest(tmp_path, "apify", "../outside")
     registry = Registry(packs=(unsafe,))
 
-    with pytest.raises(ValueError, match="unsafe pointer skill"):
+    with pytest.raises(ValueError, match="unsafe pointer"):
         render_v1_active_skills(active_root, registry, (unsafe,))
 
     assert not (tmp_path / "outside" / "SKILL.md").exists()
