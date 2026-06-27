@@ -71,9 +71,9 @@ Your preferences evolve, and so does SOS:
 SOS acts as a registry routing layer. By hiding raw folders in a managed local vault and providing short `sos-<pack>` pointers, the active prompt footprint is minimized. The agent only loads the actual tools when it explicitly calls the pack pointer, keeping the system clean.
 
 ### Q: What is the difference between Codex and Claude Code host support in SOS?
-**A**: SOS features an abstraction layer that handles host-specific path semantics:
-- **Codex**: SOS edits the primary Codex configuration file to enable or disable active skills.
-- **Claude Code**: Because Claude Code lacks a central configuration, SOS moves disabled skill folders into a `.sos-archive/` directory inside the skill root, making them invisible to Claude's discovery routine.
+**A**: SOS features a host adapter seam that keeps host-specific behaviour in one place instead of scattering `if host == "codex"` checks across the codebase:
+- **Codex**: the adapter edits the primary Codex configuration file to enable or disable active skills. The disable step runs *after* pointer skills are rendered, so an interrupted apply never leaves skills disabled with no SOS pointers in place.
+- **Claude Code**: because Claude Code lacks a central configuration, the adapter moves disabled skill folders into a `.sos-archive/` directory inside the skill root, making them invisible to Claude's discovery routine.
 You can toggle behaviors on commands using the `--host {codex,claude}` parameter.
 
 ### Q: Does dynamic pack activation add execution latency to agent calls?
@@ -356,13 +356,24 @@ Records stay local. SOS stores compact scenario tags, selected pack ids, selecte
 |-- .agents/skills/sos/     # Codex-facing SOS skill wrapper
 |-- references/             # Public behavior and safety references
 |-- src/sos/                # CLI and library implementation
-|   |-- cli.py              # Command-line entry point
+|   |-- cli.py              # Thin command-line entry point (handlers only)
 |   |-- scanner.py          # SKILL.md discovery
 |   |-- propose.py          # Pack proposal rules
-|   |-- pack_inspect.py     # Read-only pack list/show helpers
+|   |-- pack_inspect.py     # Read-only pack list/show helpers and fingerprint
 |   |-- changes.py          # Read-only runtime and skill drift reporting
 |   |-- planner.py          # Reviewable write-plan generation
+|   |-- plan_ops.py         # Shared plan-operation query helpers
 |   |-- apply.py            # Apply execution, rollback, source deletion
+|   |-- host_adapter.py     # Host adapter seam (Codex/Claude behaviour)
+|   |-- fs_transaction.py   # Shared snapshot/rollback filesystem primitives
+|   |-- path_safety.py      # Shared path-component and root-containment validators
+|   |-- pointer.py          # Active skill pointer rendering
+|   |-- manifest.py         # Pack manifest and registry I/O
+|   |-- backups.py          # Backup creation and public facade
+|   |-- backup_records.py   # Backup record management (metadata, listing)
+|   |-- backup_restore.py   # Backup restore and prune execution
+|   |-- sync.py             # Pack sync planning and activation
+|   |-- redaction.py        # Local-path redaction for user-facing output
 |   |-- workspace_activation.py
 |   |-- recommendation_engine.py
 |   |-- recommendation_store.py
@@ -406,10 +417,10 @@ Records stay local. SOS stores compact scenario tags, selected pack ids, selecte
 
 ### Compatibility
 
-SOS supports two hosts:
+SOS supports two hosts through a single host adapter seam:
 
-- **Codex**: write path updates Codex skill configuration after creating backups and only when `--apply` is used.
-- **Claude Code**: write path moves disabled source folders into `<skill-root>/.sos-archive/<pack-id>/<name>/` so Claude no longer discovers them, after creating a vault backup and only when `--apply` is used.
+- **Codex**: the write path updates Codex skill configuration after creating backups and only when `--apply` is used. Configuration disable runs after pointer skills are rendered, so an interruption between the two never leaves original skills disabled without SOS pointers.
+- **Claude Code**: the write path moves disabled source folders into `<skill-root>/.sos-archive/<pack-id>/<name>/` so Claude no longer discovers them, after creating a vault backup and only when `--apply` is used.
 
 Generated skills are ordinary `SKILL.md` folders, and pack metadata is stored in plain TOML manifests. The host is selected per write command via `--host {codex,claude}`.
 
